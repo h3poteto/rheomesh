@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    config::WebRTCTransportConfig, media_track::MediaTrack, subscriber::Subscriber,
-    transport::Transport,
+    config::WebRTCTransportConfig, data_track::DataTrack, media_track::MediaTrack,
+    subscriber::Subscriber, transport::Transport,
 };
 use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
@@ -10,7 +10,8 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct Router {
     pub id: String,
-    tracks: HashMap<String, Arc<MediaTrack>>,
+    media_tracks: HashMap<String, Arc<MediaTrack>>,
+    data_tracks: HashMap<u16, Arc<DataTrack>>,
     subscribers: HashMap<String, Arc<Subscriber>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
 }
@@ -22,7 +23,8 @@ impl Router {
 
         let r = Router {
             id: id.clone(),
-            tracks: HashMap::new(),
+            media_tracks: HashMap::new(),
+            data_tracks: HashMap::new(),
             subscribers: HashMap::new(),
             router_event_sender: tx,
         };
@@ -37,7 +39,11 @@ impl Router {
     }
 
     pub fn track_ids(&self) -> Vec<String> {
-        self.tracks.clone().into_iter().map(|(k, _)| k).collect()
+        self.media_tracks
+            .clone()
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect()
     }
 
     pub async fn create_transport(&self, transport_config: WebRTCTransportConfig) -> Transport {
@@ -55,11 +61,20 @@ impl Router {
                 RouterEvent::TrackPublished(track) => {
                     let mut r = router.lock().await;
                     let track_id = track.id.clone();
-                    r.tracks.insert(track_id, Arc::new(track));
+                    r.media_tracks.insert(track_id, Arc::new(track));
                 }
                 RouterEvent::TrackRemoved(track_id) => {
                     let mut r = router.lock().await;
-                    r.tracks.remove(&track_id);
+                    r.media_tracks.remove(&track_id);
+                }
+                RouterEvent::DataChannelOpened(data_track) => {
+                    let mut r = router.lock().await;
+                    let data_channel_id = data_track.id.clone();
+                    r.data_tracks.insert(data_channel_id, Arc::new(data_track));
+                }
+                RouterEvent::DataChannelClosed(data_channel_id) => {
+                    let mut r = router.lock().await;
+                    r.data_tracks.remove(&data_channel_id);
                 }
                 RouterEvent::SubscriberAdded(subscriber) => {
                     let mut r = router.lock().await;
@@ -72,8 +87,14 @@ impl Router {
                 }
                 RouterEvent::GetMediaTrack(track_id, reply_sender) => {
                     let r = router.lock().await;
-                    let track = r.tracks.get(&track_id);
+                    let track = r.media_tracks.get(&track_id);
                     let data = track.cloned();
+                    let _ = reply_sender.send(data);
+                }
+                RouterEvent::GetDataTrack(data_channel_id, reply_sender) => {
+                    let r = router.lock().await;
+                    let data = r.data_tracks.get(&data_channel_id);
+                    let data = data.cloned();
                     let _ = reply_sender.send(data);
                 }
                 RouterEvent::Closed => {
@@ -92,8 +113,11 @@ impl Router {
 pub enum RouterEvent {
     TrackPublished(MediaTrack),
     TrackRemoved(String),
+    DataChannelOpened(DataTrack),
+    DataChannelClosed(u16),
     SubscriberAdded(Arc<Subscriber>),
     SubscriberRemoved(String),
     GetMediaTrack(String, oneshot::Sender<Option<Arc<MediaTrack>>>),
+    GetDataTrack(u16, oneshot::Sender<Option<Arc<DataTrack>>>),
     Closed,
 }

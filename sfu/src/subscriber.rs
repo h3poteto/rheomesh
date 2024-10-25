@@ -7,6 +7,10 @@ use uuid::Uuid;
 use webrtc::rtcp::header::FORMAT_REMB;
 use webrtc::track::track_local::TrackLocalWriter;
 use webrtc::{
+    data_channel::{
+        data_channel_message::DataChannelMessage, data_channel_state::RTCDataChannelState,
+        RTCDataChannel,
+    },
     peer_connection::{
         offer_answer_options::RTCOfferOptions, sdp::session_description::RTCSessionDescription,
     },
@@ -21,6 +25,7 @@ use webrtc::{
 
 use crate::media_track::{detect_mime_type, MediaType};
 use crate::{
+    data_track::DataTrack,
     error::{Error, SubscriberErrorKind},
     media_track::MediaTrack,
     router::RouterEvent,
@@ -57,6 +62,28 @@ impl Subscriber {
         subscriber
     }
 
+    pub async fn subscribe_data(&self, track_id: u16) -> Result<RTCSessionDescription, Error> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = self
+            .router_event_sender
+            .send(RouterEvent::GetDataTrack(track_id, tx));
+
+        let reply = rx.await.unwrap();
+        match reply {
+            None => Err(Error::new_subscriber(
+                format!("Data track for {} is not found", track_id),
+                SubscriberErrorKind::TrackNotFoundError,
+            )),
+            Some(track) => {
+                self.subscribe_data_track(track).await?;
+
+                let offer = self.create_offer().await?;
+                Ok(offer)
+            }
+        }
+    }
+
     pub async fn subscribe(&self, track_id: String) -> Result<RTCSessionDescription, Error> {
         // We have to add a track before creating offer.
         // https://datatracker.ietf.org/doc/html/rfc3264
@@ -75,7 +102,7 @@ impl Subscriber {
                     SubscriberErrorKind::TrackNotFoundError,
                 ))
             }
-            Some(track) => self.subscribe_track(track).await?,
+            Some(track) => self.subscribe_media_track(track).await?,
         }
 
         let offer = self.create_offer().await?;
@@ -114,7 +141,7 @@ impl Subscriber {
         Ok(())
     }
 
-    async fn subscribe_track(&self, media_track: Arc<MediaTrack>) -> Result<(), Error> {
+    async fn subscribe_media_track(&self, media_track: Arc<MediaTrack>) -> Result<(), Error> {
         let publisher_rtcp_sender = media_track.rtcp_sender.clone();
         let track_id = media_track.track.id();
         let local_track = TrackLocalStaticRTP::new(
@@ -138,6 +165,20 @@ impl Subscriber {
         tokio::spawn(enc!((cloned_track, rtp_buffer) async move{
             let receiver = rtp_buffer.subscribe();
             Self::rtp_event_loop(track_id, cloned_track, receiver).await;
+        }));
+
+        Ok(())
+    }
+
+    async fn subscribe_data_track(&self, data_track: Arc<DataTrack>) -> Result<(), Error> {
+        let channel = self
+            .transport
+            .create_data_channel(&data_track.id.to_string(), None)
+            .await?;
+
+        let sender = data_track.data_sender.clone();
+        tokio::spawn(enc!((channel, sender) async move {
+            Self::data_event_loop(channel, sender).await;
         }));
 
         Ok(())
@@ -245,6 +286,27 @@ impl Subscriber {
         }
 
         tracing::debug!("Subscriber RTP event loop has finished for {}", track_id);
+    }
+
+    pub async fn data_event_loop(
+        channel: Arc<RTCDataChannel>,
+        sender: broadcast::Sender<DataChannelMessage>,
+    ) {
+        let mut rx = sender.subscribe();
+        while let Ok(msg) = rx.recv().await {
+            let state = channel.ready_state();
+            match state {
+                RTCDataChannelState::Open => {
+                    let data = msg.data;
+                    let _ = channel.send(&data).await;
+                }
+                _ => {
+                    tracing::warn!("Data channel is not opened, state={:?}", state);
+                }
+            }
+        }
+
+        tracing::debug!("Subscriber data event loop finished");
     }
 
     pub fn close(&self) {

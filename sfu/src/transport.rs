@@ -1,5 +1,6 @@
 use crate::{
     config::WebRTCTransportConfig,
+    data_track::DataTrack,
     error::{Error, TransportErrorKind},
     media_engine,
     media_track::MediaTrack,
@@ -353,6 +354,22 @@ impl Transport {
                 }
             }))
         })));
+
+        let router_sender = self.router_event_sender.clone();
+        peer.on_data_channel(Box::new(
+            enc!((router_sender) move |dc: Arc<RTCDataChannel>| {
+                Box::pin(enc!((router_sender) async move {
+                    let label = dc.label();
+                    let id = dc.id();
+                    tracing::info!("DataChannel opened: label={}, id={}", label, id);
+                    let (data_track, closed) = DataTrack::new(dc.clone());
+                    let _ = router_sender.send(RouterEvent::DataChannelOpened(data_track));
+
+                    let _ = closed.await;
+                    let _ = router_sender.send(RouterEvent::DataChannelClosed(id));
+                }))
+            }),
+        ));
     }
 
     // Hooks
