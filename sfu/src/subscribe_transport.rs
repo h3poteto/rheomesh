@@ -15,6 +15,8 @@ use webrtc::{
 };
 
 use crate::config::{MediaConfig, WebRTCTransportConfig};
+use crate::data_publisher::DataPublisher;
+use crate::data_subscriber::DataSubscriber;
 use crate::subscriber::Subscriber;
 use crate::transport::{OnIceCandidateFn, OnNegotiationNeededFn, Transport};
 use crate::{
@@ -106,6 +108,31 @@ impl SubscribeTransport {
         }
     }
 
+    pub async fn data_subscribe(
+        &self,
+        data_publisher_id: String,
+    ) -> Result<(DataSubscriber, RTCSessionDescription), Error> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = self
+            .router_event_sender
+            .send(RouterEvent::GetDataPublisher(data_publisher_id.clone(), tx));
+
+        let reply = rx.await.unwrap();
+        match reply {
+            None => Err(Error::new_subscriber(
+                format!("DataPublisher for {} is not found", data_publisher_id),
+                SubscriberErrorKind::DataChannelNotFoundError,
+            )),
+            Some(data_publisher) => {
+                let data_subscriber = self.subscribe_data(data_publisher).await?;
+
+                let offer = self.create_offer().await?;
+                Ok((data_subscriber, offer))
+            }
+        }
+    }
+
     async fn create_offer(&self) -> Result<RTCSessionDescription, Error> {
         tracing::debug!("subscriber creates offer");
 
@@ -177,6 +204,28 @@ impl SubscribeTransport {
         );
 
         Ok(subscriber)
+    }
+
+    async fn subscribe_data(
+        &self,
+        data_publisher: Arc<DataPublisher>,
+    ) -> Result<DataSubscriber, Error> {
+        let data_sender = data_publisher.data_sender.clone();
+
+        let data_channel = self
+            .peer_connection
+            .create_data_channel(data_publisher.id.as_str(), None)
+            .await?;
+
+        let closed_receiver = self.closed_receiver.clone();
+        let data_subscriber = DataSubscriber::new(
+            data_publisher.id.clone(),
+            data_channel,
+            data_sender,
+            closed_receiver,
+        );
+
+        Ok(data_subscriber)
     }
 
     async fn ice_state_hooks(&mut self) {

@@ -1,5 +1,6 @@
 use crate::{
     config::{MediaConfig, WebRTCTransportConfig},
+    data_publisher::DataPublisher,
     error::{Error, PublisherErrorKind, TransportErrorKind},
     publisher::Publisher,
     router::RouterEvent,
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
+    data_channel::RTCDataChannel,
     ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
     peer_connection::{sdp::session_description::RTCSessionDescription, RTCPeerConnection},
     rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
@@ -23,6 +25,8 @@ pub struct PublishTransport {
     pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
     published_sender: broadcast::Sender<Arc<Publisher>>,
     published_receiver: Arc<Mutex<broadcast::Receiver<Arc<Publisher>>>>,
+    data_published_sender: broadcast::Sender<Arc<DataPublisher>>,
+    data_published_receiver: Arc<Mutex<broadcast::Receiver<Arc<DataPublisher>>>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     // For RTCP writer
     rtcp_sender_channel: Arc<RtcpSender>,
@@ -44,6 +48,7 @@ impl PublishTransport {
         let (s, r) = mpsc::unbounded_channel();
         let (stop_sender, stop_receiver) = mpsc::unbounded_channel();
         let (published_sender, published_receiver) = broadcast::channel(1024);
+        let (data_published_sender, data_published_receiver) = broadcast::channel(1024);
 
         let peer_connection = Self::generate_peer_connection(media_config, transport_config)
             .await
@@ -55,6 +60,8 @@ impl PublishTransport {
             router_event_sender,
             published_sender,
             published_receiver: Arc::new(Mutex::new(published_receiver)),
+            data_published_sender,
+            data_published_receiver: Arc::new(Mutex::new(data_published_receiver)),
             pending_candidates: Arc::new(Mutex::new(Vec::new())),
             rtcp_sender_channel: Arc::new(s),
             rtcp_receiver_channel: Arc::new(Mutex::new(r)),
@@ -90,6 +97,19 @@ impl PublishTransport {
         Err(Error::new_publisher(
             "Failed to get published track".to_string(),
             PublisherErrorKind::TrackNotPublishedError,
+        ))
+    }
+
+    pub async fn data_publish(&self, channel_id: String) -> Result<Arc<DataPublisher>, Error> {
+        let receiver = self.data_published_receiver.clone();
+        while let Ok(data_publisher) = receiver.lock().await.recv().await {
+            if data_publisher.id == channel_id {
+                return Ok(data_publisher);
+            }
+        }
+        Err(Error::new_publisher(
+            "Failed to get published data channel".to_owned(),
+            PublisherErrorKind::DataChannelNotPublishedError,
         ))
     }
 
@@ -207,6 +227,25 @@ impl PublishTransport {
                 tracing::debug!("ICE gathering state changed: {}", state);
             })
         }));
+
+        let router_sender = self.router_event_sender.clone();
+        let data_published_sender = self.data_published_sender.clone();
+        peer.on_data_channel(Box::new(
+            enc!((router_sender, data_published_sender) move |dc: Arc<RTCDataChannel>| {
+                Box::pin(enc!((router_sender, data_published_sender) async move {
+                    let id = dc.id().to_string();
+                    tracing::info!("Data channel created: id={}, label={}", id, dc.label());
+
+                    let (data_publisher, closed) = DataPublisher::new(dc);
+
+                    data_published_sender.send(data_publisher.clone()).expect("could not send data published to publisher");
+                    let _ = router_sender.send(RouterEvent::DataPublished(data_publisher));
+
+                    let _ = closed.await;
+                    let _ = router_sender.send(RouterEvent::DataRemoved(id));
+                }))
+            }),
+        ));
     }
 
     // Hooks

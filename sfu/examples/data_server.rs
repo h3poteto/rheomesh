@@ -2,14 +2,13 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
-use actix::{Actor, Addr, Message, StreamHandler};
-use actix::{AsyncContext, Handler};
+use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
 use rheomesh::config::MediaConfig;
-use rheomesh::publisher::Publisher;
-use rheomesh::subscriber::Subscriber;
+use rheomesh::data_publisher::DataPublisher;
+use rheomesh::data_subscriber::DataSubscriber;
 use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -89,12 +88,11 @@ struct WebSocket {
     room: Arc<Room>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
-    publishers: Arc<Mutex<HashMap<String, Arc<Publisher>>>>,
-    subscribers: Arc<Mutex<HashMap<String, Arc<Subscriber>>>>,
+    data_publishers: Arc<Mutex<HashMap<String, Arc<DataPublisher>>>>,
+    data_subscribers: Arc<Mutex<HashMap<String, Arc<DataSubscriber>>>>,
 }
 
 impl WebSocket {
-    // This function is called when a new user connect to this server.
     pub async fn new(room: Arc<Room>) -> Self {
         tracing::info!("Starting WebSocket");
         let r = room.router.clone();
@@ -110,12 +108,13 @@ impl WebSocket {
 
         let publish_transport = router.create_publish_transport(config.clone()).await;
         let subscribe_transport = router.create_subscribe_transport(config).await;
+
         Self {
             room,
             publish_transport: Arc::new(publish_transport),
             subscribe_transport,
-            publishers: Arc::new(Mutex::new(HashMap::new())),
-            subscribers: Arc::new(Mutex::new(HashMap::new())),
+            data_publishers: Arc::new(Mutex::new(HashMap::new())),
+            data_subscribers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -157,8 +156,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocket {
                 Ok(message) => {
                     ctx.address().do_send(message);
                 }
-                Err(error) => {
-                    tracing::error!("failed to parse client message: {}\n{}", error, text);
+                Err(err) => {
+                    tracing::error!("failed to parse client message: {}\n{}", err, text);
                 }
             },
             Ok(ws::Message::Binary(bin)) => ctx.binary(bin),
@@ -251,13 +250,13 @@ impl Handler<ReceivedMessage> for WebSocket {
                 });
             }
             ReceivedMessage::Subscribe {
-                publisher_id: track_id,
+                publisher_id: channel_id,
             } => {
                 let subscribe_transport = self.subscribe_transport.clone();
-                let subscribers = self.subscribers.clone();
+                let subscribers = self.data_subscribers.clone();
                 actix::spawn(async move {
                     let (subscriber, offer) = subscribe_transport
-                        .subscribe(track_id)
+                        .data_subscribe(channel_id)
                         .await
                         .expect("failed to connect subscribe_transport");
 
@@ -277,14 +276,14 @@ impl Handler<ReceivedMessage> for WebSocket {
                         .expect("failed to set answer");
                 });
             }
-            ReceivedMessage::Publish { track_id } => {
+            ReceivedMessage::Publish { channel_id } => {
                 let room = self.room.clone();
                 let publish_transport = self.publish_transport.clone();
-                let publishers = self.publishers.clone();
+                let publishers = self.data_publishers.clone();
                 actix::spawn(async move {
-                    match publish_transport.publish(track_id).await {
+                    match publish_transport.data_publish(channel_id).await {
                         Ok(publisher) => {
-                            tracing::debug!("published a track: {}", publisher.id);
+                            tracing::debug!("published a data channel: {}", publisher.id);
                             // address.do_send(SendingMessage::Published {
                             //     track_id: id.clone(),
                             // });
@@ -303,7 +302,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 });
             }
             ReceivedMessage::StopPublish { publisher_id } => {
-                let publishers = self.publishers.clone();
+                let publishers = self.data_publishers.clone();
                 actix::spawn(async move {
                     let mut p = publishers.lock().await;
                     if let Some(publisher) = p.remove(&publisher_id) {
@@ -312,7 +311,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 });
             }
             ReceivedMessage::StopSubscribe { subscriber_id } => {
-                let subscribers = self.subscribers.clone();
+                let subscribers = self.data_subscribers.clone();
                 actix::spawn(async move {
                     let mut s = subscribers.lock().await;
                     if let Some(subscriber) = s.remove(&subscriber_id) {
@@ -331,12 +330,6 @@ impl Handler<SendingMessage> for WebSocket {
         tracing::debug!("sending message: {:?}", msg);
         ctx.text(serde_json::to_string(&msg).expect("failed to parse SendingMessage"));
     }
-}
-
-impl Handler<InternalMessage> for WebSocket {
-    type Result = ();
-
-    fn handle(&mut self, _msg: InternalMessage, _ctx: &mut Self::Context) -> Self::Result {}
 }
 
 #[derive(Deserialize, Message, Debug)]
@@ -363,7 +356,7 @@ enum ReceivedMessage {
     #[serde(rename_all = "camelCase")]
     Answer { sdp: RTCSessionDescription },
     #[serde(rename_all = "camelCase")]
-    Publish { track_id: String },
+    Publish { channel_id: String },
     #[serde(rename_all = "camelCase")]
     StopPublish { publisher_id: String },
     #[serde(rename_all = "camelCase")]
@@ -392,11 +385,7 @@ enum SendingMessage {
     Subscribed { subscriber_id: String },
 }
 
-#[derive(Message, Debug)]
-#[rtype(result = "()")]
-enum InternalMessage {}
-
-pub struct RoomOwner {
+struct RoomOwner {
     rooms: HashMap<String, Arc<Room>>,
 }
 

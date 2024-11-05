@@ -1,4 +1,6 @@
 pub mod config;
+pub mod data_publisher;
+pub mod data_subscriber;
 pub mod error;
 pub mod publish_transport;
 pub mod publisher;

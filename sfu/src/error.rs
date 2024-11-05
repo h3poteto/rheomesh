@@ -47,12 +47,16 @@ pub enum TransportErrorKind {
 pub enum SubscriberErrorKind {
     #[error("track not found error")]
     TrackNotFoundError,
+    #[error("data channel not found error")]
+    DataChannelNotFoundError,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum PublisherErrorKind {
     #[error("track not published error")]
     TrackNotPublishedError,
+    #[error("data channel not published error")]
+    DataChannelNotPublishedError,
 }
 
 impl Error {

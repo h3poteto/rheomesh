@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     config::{MediaConfig, WebRTCTransportConfig},
+    data_publisher::DataPublisher,
     publish_transport::PublishTransport,
     publisher::Publisher,
     subscribe_transport::SubscribeTransport,
@@ -13,6 +14,7 @@ use uuid::Uuid;
 pub struct Router {
     pub id: String,
     publishers: HashMap<String, Arc<Publisher>>,
+    data_publishers: HashMap<String, Arc<DataPublisher>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
 }
@@ -25,6 +27,7 @@ impl Router {
         let r = Router {
             id: id.clone(),
             publishers: HashMap::new(),
+            data_publishers: HashMap::new(),
             router_event_sender: tx,
             media_config,
         };
@@ -86,6 +89,21 @@ impl Router {
                     let data = track.cloned();
                     let _ = reply_sender.send(data);
                 }
+                RouterEvent::DataPublished(data_publisher) => {
+                    let mut r = router.lock().await;
+                    let data_id = data_publisher.id.clone();
+                    r.data_publishers.insert(data_id, data_publisher);
+                }
+                RouterEvent::DataRemoved(data_publisher_id) => {
+                    let mut r = router.lock().await;
+                    r.data_publishers.remove(&data_publisher_id);
+                }
+                RouterEvent::GetDataPublisher(data_publisher_id, reply_sender) => {
+                    let r = router.lock().await;
+                    let channel = r.data_publishers.get(&data_publisher_id);
+                    let data = channel.cloned();
+                    let _ = reply_sender.send(data);
+                }
                 RouterEvent::Closed => {
                     break;
                 }
@@ -102,7 +120,10 @@ impl Router {
 pub enum RouterEvent {
     TrackPublished(Arc<Publisher>),
     TrackRemoved(String),
+    DataPublished(Arc<DataPublisher>),
+    DataRemoved(String),
     GetPublisher(String, oneshot::Sender<Option<Arc<Publisher>>>),
+    GetDataPublisher(String, oneshot::Sender<Option<Arc<DataPublisher>>>),
     Closed,
 }
 
