@@ -11,7 +11,7 @@ homepage = "https://github.com/h3poteto/rheomesh"
 [dependencies]
 chrono = "0.4.38"
 enclose = "1.2.0"
-thiserror = "1.0.64"
+thiserror = "2.0.0"
 tokio = "1.38.0"
 tracing = "0.1.40"
 uuid = { version = "1.8", features = ["v4"] }
