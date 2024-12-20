@@ -1010,13 +1010,13 @@ __metadata:
   linkType: hard
 
 "@jridgewell/gen-mapping@npm:^0.3.5":
-  version: 0.3.5
-  resolution: "@jridgewell/gen-mapping@npm:0.3.5"
+  version: 0.3.8
+  resolution: "@jridgewell/gen-mapping@npm:0.3.8"
   dependencies:
     "@jridgewell/set-array": "npm:^1.2.1"
     "@jridgewell/sourcemap-codec": "npm:^1.4.10"
     "@jridgewell/trace-mapping": "npm:^0.3.24"
-  checksum: 10c0/1be4fd4a6b0f41337c4f5fdf4afc3bd19e39c3691924817108b82ffcb9c9e609c273f936932b9fba4b3a298ce2eb06d9bff4eb1cc3bd81c4f4ee1b4917e25feb
+  checksum: 10c0/c668feaf86c501d7c804904a61c23c67447b2137b813b9ce03eca82cb9d65ac7006d766c218685d76e3d72828279b6ee26c347aa1119dab23fbaf36aed51585a
   languageName: node
   linkType: hard
 
@@ -1435,11 +1435,11 @@ __metadata:
   linkType: hard
 
 "@types/node@npm:*, @types/node@npm:^20":
-  version: 20.17.9
-  resolution: "@types/node@npm:20.17.9"
+  version: 20.17.10
+  resolution: "@types/node@npm:20.17.10"
   dependencies:
     undici-types: "npm:~6.19.2"
-  checksum: 10c0/1c37c3618407d56b76301578edabcb4c6a7ef093d0811c50fc4df8df68fc546797a294cafac0e50789f4e0e485cd1d6871964d8e6222fd420658bdae89c1fb4a
+  checksum: 10c0/458ec725319e57d4692cbb56d81f1a90f9074cef9ec185c59e6f6c557a3d2ded57c5e443b1e82eba923d53dda4db18797fb131ee6e46fdb3d7d2f54d54aaebe3
   languageName: node
   linkType: hard
 
@@ -1450,22 +1450,22 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react-dom@npm:^18":
-  version: 18.3.2
-  resolution: "@types/react-dom@npm:18.3.2"
-  dependencies:
-    "@types/react": "npm:^18"
-  checksum: 10c0/22510231af67044a9542633b5b52ec16a8d71fa1da177f82428b8120d36619fd874c3b975b2eda6895baa53667f9fe8cba3acea1232a0244dffe8b11f6b32284
+"@types/react-dom@npm:^18.3.5":
+  version: 18.3.5
+  resolution: "@types/react-dom@npm:18.3.5"
+  peerDependencies:
+    "@types/react": ^18.0.0
+  checksum: 10c0/b163d35a6b32a79f5782574a7aeb12a31a647e248792bf437e6d596e2676961c394c5e3c6e91d1ce44ae90441dbaf93158efb4f051c0d61e2612f1cb04ce4faa
   languageName: node
   linkType: hard
 
-"@types/react@npm:^18":
-  version: 18.3.14
-  resolution: "@types/react@npm:18.3.14"
+"@types/react@npm:^18.3.18":
+  version: 18.3.18
+  resolution: "@types/react@npm:18.3.18"
   dependencies:
     "@types/prop-types": "npm:*"
     csstype: "npm:^3.0.2"
-  checksum: 10c0/d925fbfcf084238b93d1a0b5406d4cf9aeb37c4a1191559aa4ee107c2e55cc15327989140f03eddda4d471f5b935d4673fd74a86f451860edea18eae48ca44f8
+  checksum: 10c0/8fb2b00672072135d0858dc9db07873ea107cc238b6228aaa2a9afd1ef7a64a7074078250db38afbeb19064be8ea6af5eac32d404efdd5f45e093cc4829d87f8
   languageName: node
   linkType: hard
 
@@ -1758,16 +1758,16 @@ __metadata:
   linkType: hard
 
 "browserslist@npm:^4.24.0":
-  version: 4.24.2
-  resolution: "browserslist@npm:4.24.2"
+  version: 4.24.3
+  resolution: "browserslist@npm:4.24.3"
   dependencies:
-    caniuse-lite: "npm:^1.0.30001669"
-    electron-to-chromium: "npm:^1.5.41"
-    node-releases: "npm:^2.0.18"
+    caniuse-lite: "npm:^1.0.30001688"
+    electron-to-chromium: "npm:^1.5.73"
+    node-releases: "npm:^2.0.19"
     update-browserslist-db: "npm:^1.1.1"
   bin:
     browserslist: cli.js
-  checksum: 10c0/d747c9fb65ed7b4f1abcae4959405707ed9a7b835639f8a9ba0da2911995a6ab9b0648fd05baf2a4d4e3cf7f9fdbad56d3753f91881e365992c1d49c8d88ff7a
+  checksum: 10c0/bab261ef7b6e1656a719a9fa31240ae7ce4d5ba68e479f6b11e348d819346ab4c0ff6f4821f43adcc9c193a734b186775a83b37979e70a69d182965909fe569a
   languageName: node
   linkType: hard
 
@@ -1846,10 +1846,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"caniuse-lite@npm:^1.0.30001579, caniuse-lite@npm:^1.0.30001669":
-  version: 1.0.30001687
-  resolution: "caniuse-lite@npm:1.0.30001687"
-  checksum: 10c0/9ca0f6d33dccaf4692339d0fda50e03e4dd7eb7f25faabd1cb33e2099d9a76b0bc30c37be3315e91c1d990da1b5cc864eee2077494f4d0ba94d68b48fe2ea7f1
+"caniuse-lite@npm:^1.0.30001579, caniuse-lite@npm:^1.0.30001688":
+  version: 1.0.30001690
+  resolution: "caniuse-lite@npm:1.0.30001690"
+  checksum: 10c0/646bd469032afa90400a84dec30a2b00a6eda62c03ead358117e3f884cda8aacec02ec058a6dbee5eaf9714f83e483b9b0eb4fb42febb8076569f5ca40f1d347
   languageName: node
   linkType: hard
 
@@ -2154,10 +2154,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"electron-to-chromium@npm:^1.5.41":
-  version: 1.5.71
-  resolution: "electron-to-chromium@npm:1.5.71"
-  checksum: 10c0/f6fdeec0e1d68634cf92c267bdce3e50af947ce2c8fb1034df3e738c536b3033e311ad0fb9a6c4c35f678f10a299e4f78fdfcedbaa78d8992fedc443a7363d6d
+"electron-to-chromium@npm:^1.5.73":
+  version: 1.5.75
+  resolution: "electron-to-chromium@npm:1.5.75"
+  checksum: 10c0/df769b7a5e9895a8ba8eb7f31b9525a0e00b8aef6e3ecab3faebe90756fc9ac008dddb8d9a2a78d2079cbaebd27da6e1379f77e910163f405bb1a3d622ec4276
   languageName: node
   linkType: hard
 
@@ -2746,12 +2746,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"is-core-module@npm:^2.13.0":
-  version: 2.15.1
-  resolution: "is-core-module@npm:2.15.1"
+"is-core-module@npm:^2.16.0":
+  version: 2.16.0
+  resolution: "is-core-module@npm:2.16.0"
   dependencies:
     hasown: "npm:^2.0.2"
-  checksum: 10c0/53432f10c69c40bfd2fa8914133a68709ff9498c86c3bf5fca3cdf3145a56fd2168cbf4a43b29843a6202a120a5f9c5ffba0a4322e1e3441739bc0b641682612
+  checksum: 10c0/57e3b4bf3503a5ace3e61ef030a2eefa03d27827647b22968456e3e4befffed7c7aa849eea2e029f4f74a119a2d53cc391d5bad59c9352ecc9b79be3fd2acf79
   languageName: node
   linkType: hard
 
@@ -3422,11 +3422,11 @@ __metadata:
   linkType: hard
 
 "jsesc@npm:^3.0.2":
-  version: 3.0.2
-  resolution: "jsesc@npm:3.0.2"
+  version: 3.1.0
+  resolution: "jsesc@npm:3.1.0"
   bin:
     jsesc: bin/jsesc
-  checksum: 10c0/ef22148f9e793180b14d8a145ee6f9f60f301abf443288117b4b6c53d0ecd58354898dc506ccbb553a5f7827965cd38bc5fb726575aae93c5e8915e2de8290e1
+  checksum: 10c0/531779df5ec94f47e462da26b4cbf05eb88a83d9f08aac2ba04206508fc598527a153d08bd462bae82fc78b3eaa1a908e1a4a79f886e9238641c4cdefaf118b1
   languageName: node
   linkType: hard
 
@@ -3729,8 +3729,8 @@ __metadata:
   resolution: "multiple@workspace:example/multiple"
   dependencies:
     "@types/node": "npm:^20"
-    "@types/react": "npm:^18"
-    "@types/react-dom": "npm:^18"
+    "@types/react": "npm:^18.3.18"
+    "@types/react-dom": "npm:^18.3.5"
     next: "npm:15.0.4"
     react: "npm:^18.3"
     react-dom: "npm:^18.3"
@@ -3850,10 +3850,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-releases@npm:^2.0.18":
-  version: 2.0.18
-  resolution: "node-releases@npm:2.0.18"
-  checksum: 10c0/786ac9db9d7226339e1dc84bbb42007cb054a346bd9257e6aa154d294f01bc6a6cddb1348fa099f079be6580acbb470e3c048effd5f719325abd0179e566fd27
+"node-releases@npm:^2.0.19":
+  version: 2.0.19
+  resolution: "node-releases@npm:2.0.19"
+  checksum: 10c0/52a0dbd25ccf545892670d1551690fe0facb6a471e15f2cfa1b20142a5b255b3aa254af5f59d6ecb69c2bec7390bc643c43aa63b13bf5e64b6075952e716b1aa
   languageName: node
   linkType: hard
 
@@ -4202,28 +4202,28 @@ __metadata:
   linkType: hard
 
 "resolve@npm:^1.20.0":
-  version: 1.22.8
-  resolution: "resolve@npm:1.22.8"
+  version: 1.22.10
+  resolution: "resolve@npm:1.22.10"
   dependencies:
-    is-core-module: "npm:^2.13.0"
+    is-core-module: "npm:^2.16.0"
     path-parse: "npm:^1.0.7"
     supports-preserve-symlinks-flag: "npm:^1.0.0"
   bin:
     resolve: bin/resolve
-  checksum: 10c0/07e179f4375e1fd072cfb72ad66d78547f86e6196c4014b31cb0b8bb1db5f7ca871f922d08da0fbc05b94e9fd42206f819648fa3b5b873ebbc8e1dc68fec433a
+  checksum: 10c0/8967e1f4e2cc40f79b7e080b4582b9a8c5ee36ffb46041dccb20e6461161adf69f843b43067b4a375de926a2cd669157e29a29578191def399dd5ef89a1b5203
   languageName: node
   linkType: hard
 
 "resolve@patch:resolve@npm%3A^1.20.0#optional!builtin<compat/resolve>":
-  version: 1.22.8
-  resolution: "resolve@patch:resolve@npm%3A1.22.8#optional!builtin<compat/resolve>::version=1.22.8&hash=c3c19d"
+  version: 1.22.10
+  resolution: "resolve@patch:resolve@npm%3A1.22.10#optional!builtin<compat/resolve>::version=1.22.10&hash=c3c19d"
   dependencies:
-    is-core-module: "npm:^2.13.0"
+    is-core-module: "npm:^2.16.0"
     path-parse: "npm:^1.0.7"
     supports-preserve-symlinks-flag: "npm:^1.0.0"
   bin:
     resolve: bin/resolve
-  checksum: 10c0/0446f024439cd2e50c6c8fa8ba77eaa8370b4180f401a96abf3d1ebc770ac51c1955e12764cde449fde3fff480a61f84388e3505ecdbab778f4bef5f8212c729
+  checksum: 10c0/52a4e505bbfc7925ac8f4cd91fd8c4e096b6a89728b9f46861d3b405ac9a1ccf4dcbf8befb4e89a2e11370dacd0160918163885cbc669369590f2f31f4c58939
   languageName: node
   linkType: hard
 
@@ -4932,8 +4932,8 @@ __metadata:
   linkType: hard
 
 "vite@npm:^6.0.0":
-  version: 6.0.3
-  resolution: "vite@npm:6.0.3"
+  version: 6.0.4
+  resolution: "vite@npm:6.0.4"
   dependencies:
     esbuild: "npm:^0.24.0"
     fsevents: "npm:~2.3.3"
@@ -4979,7 +4979,7 @@ __metadata:
       optional: true
   bin:
     vite: bin/vite.js
-  checksum: 10c0/764ebed14770426a638575b23a51127c630ace873999ab896b0184484d8107e7255cdf64cfb36c65c1ef1d583e44b70a1d14c0f05b89612e834a5806e3964475
+  checksum: 10c0/b1808f99250980bb1dc7805897ecfced4913adc7b4fd1cf7912e034f3e24e3e97a751ca3410620428bf073070f0b46071b94c4241cf9fc88b12f2d9dcafd7619
   languageName: node
   linkType: hard
 
