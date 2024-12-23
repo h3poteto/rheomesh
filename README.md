@@ -13,6 +13,9 @@ Rheomesh is a WebRTC SFU ([Selective Forwarding Unit](https://bloggeek.me/webrtc
 - [ ] Simulcast
 - [ ] Relay
 
+## Architecture
+![overview](./rheomesh.jpg)
+
 ## Server-side
 Please refer [server-side document](sfu).
 
