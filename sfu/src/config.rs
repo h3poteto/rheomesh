@@ -11,6 +11,13 @@ use webrtc_ice::{
 };
 
 const EXT_TOFFSET: &str = "urn:ietf:params:rtp-hdrext:toffset";
+const EXT_PLAYOUT_DELAY: &str = "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay";
+const EXT_VIDEO_CONTENT_TYPE: &str =
+    "http://www.webrtc.org/experiments/rtp-hdrext/video-content-type";
+const EXT_VIDEO_TIMING: &str = "http://www.webrtc.org/experiments/rtp-hdrext/video-timing";
+const EXT_COLOR_SPACE: &str = "http://www.webrtc.org/experiments/rtp-hdrext/color-space";
+const EXT_VIDEO_LAYERS_ALLOCATION00: &str =
+    "http://www.webrtc.org/experiments/rtp-hdrext/video-layers-allocation00";
 
 /// PortRange for [`WebRTCTransportConfig`]. In server side, random ports within this range are assigned for UDP connections.
 #[derive(Clone, Debug)]
@@ -169,10 +176,15 @@ fn extmap_order() -> HashMap<u16, String> {
         (2, extmap::ABS_SEND_TIME_URI.to_owned()),
         (3, extmap::TRANSPORT_CC_URI.to_owned()),
         (4, extmap::SDES_MID_URI.to_owned()),
+        (5, EXT_PLAYOUT_DELAY.to_string()),
+        (6, EXT_VIDEO_CONTENT_TYPE.to_string()),
+        (7, EXT_VIDEO_TIMING.to_string()),
+        (8, EXT_COLOR_SPACE.to_string()),
         (10, extmap::SDES_RTP_STREAM_ID_URI.to_owned()),
         (11, extmap::SDES_REPAIR_RTP_STREAM_ID_URI.to_owned()),
         (13, extmap::VIDEO_ORIENTATION_URI.to_owned()),
         (14, EXT_TOFFSET.to_string()),
+        (15, EXT_VIDEO_LAYERS_ALLOCATION00.to_string()),
     ])
 }
 
