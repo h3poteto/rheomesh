@@ -14,10 +14,12 @@ pub mod data_publisher;
 /// DataChannel methods for subscriber.
 pub mod data_subscriber;
 pub mod error;
+/// Track related methods for a published track.
+pub mod local_track;
 mod prober;
 /// [`webrtc::peer_connection::RTCPeerConnection`] methods for publisher.
 pub mod publish_transport;
-/// Audio and video methods for publisher.
+/// Audio and video methods for track.
 pub mod publisher;
 /// Router is a module that determines which media to distribute to whom.
 pub mod router;

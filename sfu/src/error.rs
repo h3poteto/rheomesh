@@ -65,6 +65,8 @@ pub enum PublisherErrorKind {
     TrackNotPublishedError,
     #[error("data channel not published error")]
     DataChannelNotPublishedError,
+    #[error("track not found error")]
+    TrackNotFoundError,
 }
 
 impl Error {

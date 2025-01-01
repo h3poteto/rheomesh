@@ -48,15 +48,26 @@ export class PublishTransport extends EventEmitter {
 
   public async publish(
     track: MediaStreamTrack,
+    encodings?: Array<RTCRtpEncodingParameters>,
   ): Promise<RTCSessionDescriptionInit> {
     while (this._signalingLock) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     this._signalingLock = true;
-    this._peerConnection.addTrack(track);
+
+    let options: RTCRtpTransceiverInit = {
+      direction: "sendonly",
+    };
+    if (track.kind === "video" && encodings) {
+      options = Object.assign(options, {
+        sendEncodings: encodings,
+      });
+    }
+    this._peerConnection.addTransceiver(track, options);
 
     const init = await this._peerConnection.createOffer(offerOptions);
     const offer = adjustExtmap(init);
+    console.log("offer:", offer);
 
     await this._peerConnection.setLocalDescription(offer);
 

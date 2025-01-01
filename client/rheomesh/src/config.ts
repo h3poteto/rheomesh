@@ -23,3 +23,11 @@ export function findExtmapOrder(uri: string): number | null {
     return null;
   }
 }
+
+export function simulcastEncodings(): Array<RTCRtpEncodingParameters> {
+  return [
+    { rid: "low", maxBitrate: 125000, scaleResolutionDownBy: 4.0 },
+    { rid: "mid", maxBitrate: 500000, scaleResolutionDownBy: 2.0 },
+    { rid: "high", maxBitrate: 2500000, scaleResolutionDownBy: 1.0 },
+  ];
+}

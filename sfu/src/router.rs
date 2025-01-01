@@ -7,14 +7,14 @@ use crate::{
     publisher::Publisher,
     subscribe_transport::SubscribeTransport,
 };
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use uuid::Uuid;
 
 /// Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
 #[derive(Clone, Debug)]
 pub struct Router {
     pub id: String,
-    publishers: Vec<(String, Arc<Publisher>)>,
+    publishers: Vec<(String, Arc<RwLock<Publisher>>)>,
     data_publishers: HashMap<String, Arc<DataPublisher>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
@@ -85,12 +85,11 @@ impl Router {
     ) {
         while let Some(event) = event_receiver.recv().await {
             match event {
-                RouterEvent::TrackPublished(publisher) => {
+                RouterEvent::MediaPublished(track_id, publisher) => {
                     let mut r = router.lock().await;
-                    let track_id = publisher.id.clone();
                     r.publishers.push((track_id, publisher));
                 }
-                RouterEvent::TrackRemoved(track_id) => {
+                RouterEvent::PublisherRemoved(track_id) => {
                     let mut r = router.lock().await;
                     r.publishers.retain(|(id, _)| *id != track_id);
                 }
@@ -134,11 +133,11 @@ impl Router {
 
 #[derive(Debug)]
 pub(crate) enum RouterEvent {
-    TrackPublished(Arc<Publisher>),
-    TrackRemoved(String),
+    MediaPublished(String, Arc<RwLock<Publisher>>),
+    PublisherRemoved(String),
     DataPublished(Arc<DataPublisher>),
     DataRemoved(String),
-    GetPublisher(String, oneshot::Sender<Option<Arc<Publisher>>>),
+    GetPublisher(String, oneshot::Sender<Option<Arc<RwLock<Publisher>>>>),
     GetDataPublisher(String, oneshot::Sender<Option<Arc<DataPublisher>>>),
     Closed,
 }
