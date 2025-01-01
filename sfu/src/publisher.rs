@@ -100,7 +100,6 @@ impl Publisher {
                 PublisherEvent::TrackRemoved(ssrc) => {
                     let mut p = publisher.write().await;
                     p.local_tracks.remove(&ssrc);
-                    tracing::debug!("TrackRemoved, remaining: {:#?}", p.local_tracks);
                     if p.local_tracks.is_empty() {
                         let _ = p
                             .router_sender

@@ -1,6 +1,10 @@
 import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
-import { PublishTransport, SubscribeTransport } from "rheomesh";
+import {
+  PublishTransport,
+  SubscribeTransport,
+  simulcastEncodings,
+} from "rheomesh";
 
 const peerConnectionConfig: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -172,7 +176,10 @@ export default function Room() {
 
   const publish = async (stream: MediaStream) => {
     stream.getTracks().forEach(async (track) => {
-      const offer = await publishTransport.current!.publish(track);
+      const offer = await publishTransport.current!.publish(
+        track,
+        simulcastEncodings(),
+      );
       ws.current!.send(
         JSON.stringify({
           action: "Offer",
