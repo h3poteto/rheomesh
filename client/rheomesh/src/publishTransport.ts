@@ -53,10 +53,24 @@ export class PublishTransport extends EventEmitter {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     this._signalingLock = true;
-    this._peerConnection.addTrack(track);
+
+    let options: RTCRtpTransceiverInit = {
+      direction: "sendonly",
+    };
+    if (track.kind === "video") {
+      options = Object.assign(options, {
+        sendEncodings: [
+          { rid: "low", maxBitrate: 500000, scaleResolutionDownBy: 4.0 },
+          { rid: "mid", maxBitrate: 1000000, scaleResolutionDownBy: 2.0 },
+          { rid: "high", maxBitrate: 5000000, scaleResolutionDownBy: 1.0 },
+        ],
+      });
+    }
+    this._peerConnection.addTransceiver(track, options);
 
     const init = await this._peerConnection.createOffer(offerOptions);
     const offer = adjustExtmap(init);
+    console.log("offer:", offer);
 
     await this._peerConnection.setLocalDescription(offer);
 
