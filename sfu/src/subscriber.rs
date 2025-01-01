@@ -184,7 +184,8 @@ impl Subscriber {
                                             .as_any()
                                             .downcast_ref::<rtcp::receiver_report::ReceiverReport>()
                                         {
-                                            let rr = rr.clone();
+                                            let mut rr = rr.clone();
+                                            rr.ssrc = media_ssrc;
                                             match publisher_rtcp_sender.send(Box::new(rr)) {
                                                 Ok(_) => tracing::trace!("send rtcp: rr"),
                                                 Err(err) => tracing::error!("Subscriber id={} failed to send rtcp rr: {}", id, err),

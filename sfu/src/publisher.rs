@@ -23,6 +23,7 @@ pub struct Publisher {
     publisher_event_sender: mpsc::UnboundedSender<PublisherEvent>,
     #[derivative(Debug = "ignore")]
     close_callback: Box<dyn Fn(String) + Send + Sync>,
+    rid_to_ssrc: HashMap<String, u32>,
 }
 
 impl Publisher {
@@ -39,6 +40,7 @@ impl Publisher {
             router_sender,
             publisher_event_sender: tx,
             close_callback,
+            rid_to_ssrc: HashMap::new(),
         };
         let publisher = Arc::new(RwLock::new(publisher));
         {
@@ -59,6 +61,7 @@ impl Publisher {
         rtcp_sender: Arc<transport::RtcpSender>,
     ) {
         let ssrc = track.ssrc();
+        let rid = track.rid().to_string();
         let local_track = LocalTrack::new(
             track,
             rtp_receiver,
@@ -66,13 +69,24 @@ impl Publisher {
             rtcp_sender,
             self.publisher_event_sender.clone(),
         );
-        let _ = self
-            .publisher_event_sender
-            .send(PublisherEvent::TrackAdded(ssrc, local_track));
+        let _ =
+            self.publisher_event_sender
+                .send(PublisherEvent::TrackAdded(ssrc, rid, local_track));
     }
 
-    // TODO: Get appropriate local track according to preffered layer
-    pub(crate) fn get_local_track(&self) -> Result<&LocalTrack, Error> {
+    pub(crate) fn get_local_track(&self, rid: &str) -> Result<&LocalTrack, Error> {
+        if let Some(ssrc) = self.rid_to_ssrc.get(rid) {
+            if let Some(track) = self.local_tracks.get(ssrc) {
+                Ok(track)
+            } else {
+                self.get_random_local_track()
+            }
+        } else {
+            self.get_random_local_track()
+        }
+    }
+
+    fn get_random_local_track(&self) -> Result<&LocalTrack, Error> {
         self.local_tracks
             .values()
             .next()
@@ -93,9 +107,10 @@ impl Publisher {
     ) {
         while let Some(event) = event_receiver.recv().await {
             match event {
-                PublisherEvent::TrackAdded(ssrc, local_track) => {
+                PublisherEvent::TrackAdded(ssrc, rid, local_track) => {
                     let mut p = publisher.write().await;
                     p.local_tracks.insert(ssrc, local_track);
+                    p.rid_to_ssrc.insert(rid, ssrc);
                 }
                 PublisherEvent::TrackRemoved(ssrc) => {
                     let mut p = publisher.write().await;
@@ -123,7 +138,7 @@ impl Publisher {
 
 #[derive(Debug)]
 pub(crate) enum PublisherEvent {
-    TrackAdded(u32, LocalTrack),
+    TrackAdded(u32, String, LocalTrack),
     TrackRemoved(u32),
     Close,
 }

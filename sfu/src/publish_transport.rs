@@ -239,7 +239,6 @@ impl PublishTransport {
                   receiver: Arc<RTCRtpReceiver>,
                   transceiver: Arc<RTCRtpTransceiver>| {
                 Box::pin(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers) async move {
-                    let locked = on_track.lock().await;
                     let id = track.id();
                     let ssrc = track.ssrc();
                     tracing::info!("Track published: track_id={}, ssrc={}", id, ssrc);
@@ -269,6 +268,7 @@ impl PublishTransport {
                         }
                     }
 
+                    let locked = on_track.lock().await;
                     (locked)(track, receiver, transceiver);
                 }))
             }

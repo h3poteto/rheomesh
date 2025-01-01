@@ -18,6 +18,7 @@ pub struct LocalTrack {
     /// The ID is the same as published track_id.
     pub id: String,
     pub ssrc: u32,
+    pub rid: String,
     pub track: Arc<TrackRemote>,
     _rtp_receiver: Arc<RTCRtpReceiver>,
     _rtp_transceiver: Arc<RTCRtpTransceiver>,
@@ -36,6 +37,7 @@ impl LocalTrack {
     ) -> Self {
         let track_id = track.id();
         let ssrc = track.ssrc();
+        let rid = track.rid().to_string();
 
         let (sender, _reader) = broadcast::channel::<rtp::packet::Packet>(1024);
         let (tx, rx) = mpsc::unbounded_channel();
@@ -54,6 +56,7 @@ impl LocalTrack {
         let local_track = Self {
             id: track_id,
             ssrc,
+            rid,
             track,
             _rtp_receiver: rtp_receiver,
             _rtp_transceiver: rtp_transceiver,
@@ -100,9 +103,8 @@ impl LocalTrack {
                             last_timestamp = old_timestamp;
 
                             tracing::trace!(
-                                "LocalTrack id={} ssrc={} received RTP ssrc={} seq={} timestamp={}",
+                                "LocalTrack id={} received RTP ssrc={} seq={} timestamp={}",
                                 track_id,
-                                ssrc,
                                 rtp.header.ssrc,
                                 rtp.header.sequence_number,
                                 rtp.header.timestamp

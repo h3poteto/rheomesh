@@ -121,7 +121,8 @@ impl SubscribeTransport {
                 let mut subscriber: Option<Subscriber> = None;
                 {
                     let guard = publisher.read().await;
-                    let local_track = guard.get_local_track()?;
+                    // TODO: get appropriate rid
+                    let local_track = guard.get_local_track("high")?;
                     subscriber = Some(self.subscribe_track(local_track).await?);
                 }
                 let subscriber = subscriber.expect("Invalid subscriber");
