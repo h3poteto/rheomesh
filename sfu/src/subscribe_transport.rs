@@ -7,7 +7,7 @@ use enclose::enc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::sleep;
 use uuid::Uuid;
-use webrtc::api::media_engine::MIME_TYPE_VP8;
+use webrtc::api::media_engine::MIME_TYPE_OPUS;
 use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -261,7 +261,9 @@ impl SubscribeTransport {
 
     async fn add_probe(&self) -> Result<(), Error> {
         let codec = RTCRtpCodecCapability {
-            mime_type: MIME_TYPE_VP8.to_owned(),
+            mime_type: MIME_TYPE_OPUS.to_owned(),
+            clock_rate: 48000,
+            channels: 2,
             ..Default::default()
         };
         let dummy_track = Arc::new(TrackLocalStaticSample::new(

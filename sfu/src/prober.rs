@@ -26,17 +26,17 @@ impl Prober {
     pub(crate) async fn write_rtp(track: Arc<TrackLocalStaticSample>) -> Result<(), Error> {
         tracing::debug!("Starting prober rtp packets");
 
-        let black_frame = vec![0u8; 640 * 480 * 3 / 2];
-        let black_frame_bytes = bytes::Bytes::from(black_frame);
-        let duration = Duration::from_millis(33);
-        for _ in 0..900 {
+        let silent_audio = vec![0u8; 960];
+        let silent_audio_bytes = bytes::Bytes::from(silent_audio);
+        let duration = Duration::from_millis(20);
+        for _ in 0..1500 {
             let sample = Sample {
-                data: black_frame_bytes.clone(),
+                data: silent_audio_bytes.clone(),
                 duration,
                 ..Default::default()
             };
             if let Err(err) = track.write_sample(&sample).await {
-                eprintln!("Error sending black screen frame: {}", err);
+                eprintln!("Error sending silent audio frame: {}", err);
                 break;
             }
             sleep(duration).await;
