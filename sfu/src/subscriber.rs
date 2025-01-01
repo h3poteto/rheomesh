@@ -16,7 +16,7 @@ use webrtc::{
 };
 
 use crate::{
-    publisher::{detect_mime_type, MediaType},
+    local_track::{detect_mime_type, MediaType},
     transport,
 };
 

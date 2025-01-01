@@ -12,7 +12,7 @@ use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -89,7 +89,7 @@ struct WebSocket {
     room: Arc<Room>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
-    publishers: Arc<Mutex<HashMap<String, Arc<Publisher>>>>,
+    publishers: Arc<Mutex<HashMap<String, Arc<RwLock<Publisher>>>>>,
     subscribers: Arc<Mutex<HashMap<String, Arc<Subscriber>>>>,
 }
 
@@ -285,15 +285,21 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     match publish_transport.publish(track_id).await {
                         Ok(publisher) => {
-                            tracing::debug!("published a track: {}", publisher.id);
+                            #[allow(unused)]
+                            let mut track_id = "".to_owned();
+                            {
+                                let publisher = publisher.read().await;
+                                track_id = publisher.track_id.clone();
+                            }
+                            tracing::debug!("published a track: {}", track_id);
                             // address.do_send(SendingMessage::Published {
                             //     track_id: id.clone(),
                             // });
                             let mut p = publishers.lock().await;
-                            p.insert(publisher.id.clone(), publisher.clone());
+                            p.insert(track_id.clone(), publisher.clone());
                             room.get_peers(&address).iter().for_each(|peer| {
                                 peer.do_send(SendingMessage::Published {
-                                    publisher_ids: vec![publisher.id.clone()],
+                                    publisher_ids: vec![track_id.clone()],
                                 });
                             });
                         }
@@ -308,6 +314,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     let mut p = publishers.lock().await;
                     if let Some(publisher) = p.remove(&publisher_id) {
+                        let publisher = publisher.read().await;
                         publisher.close().await;
                     }
                 });

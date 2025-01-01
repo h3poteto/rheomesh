@@ -1,162 +1,133 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashMap, sync::Arc};
 
-use enclose::enc;
-use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::time::sleep;
-use webrtc::rtp;
+use derivative::Derivative;
+use tokio::sync::{mpsc, RwLock};
 use webrtc::{
     rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
     track::track_remote::TrackRemote,
 };
 
-use crate::router::RouterEvent;
-use crate::transport;
+use crate::{
+    error::{Error, PublisherErrorKind},
+    local_track::LocalTrack,
+    router::RouterEvent,
+    transport,
+};
 
-#[derive(Clone, Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Publisher {
-    /// The ID is the same as published track_id.
-    pub id: String,
-    pub track: Arc<TrackRemote>,
-    _rtp_receiver: Arc<RTCRtpReceiver>,
-    _rtp_transceiver: Arc<RTCRtpTransceiver>,
-    pub(crate) rtcp_sender: Arc<transport::RtcpSender>,
-    closed_sender: Arc<mpsc::UnboundedSender<bool>>,
-    pub(crate) rtp_packet_sender: broadcast::Sender<rtp::packet::Packet>,
+    pub track_id: String,
+    local_tracks: HashMap<u32, LocalTrack>,
+    router_sender: mpsc::UnboundedSender<RouterEvent>,
+    publisher_event_sender: mpsc::UnboundedSender<PublisherEvent>,
+    #[derivative(Debug = "ignore")]
+    close_callback: Box<dyn Fn(String) + Send + Sync>,
 }
 
 impl Publisher {
     pub(crate) fn new(
-        track: Arc<TrackRemote>,
-        rtp_receiver: Arc<RTCRtpReceiver>,
-        rtp_transceiver: Arc<RTCRtpTransceiver>,
-        rtcp_sender: Arc<transport::RtcpSender>,
+        track_id: String,
         router_sender: mpsc::UnboundedSender<RouterEvent>,
-    ) -> Self {
-        let id = track.id();
-        let ssrc = track.ssrc();
-
-        let (sender, _reader) = broadcast::channel::<rtp::packet::Packet>(1024);
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        {
-            let id = id.clone();
-            let closed_receiver = Arc::new(Mutex::new(rx));
-            tokio::spawn(enc!((sender, track) async move {
-                Self::rtp_event_loop(id.clone(), ssrc, sender, track, closed_receiver).await;
-                let _ = router_sender.send(RouterEvent::TrackRemoved(id));
-            }));
-        }
-
-        tracing::debug!("Publisher id={} is created for ssrc={}", id, ssrc);
+        close_callback: Box<dyn Fn(String) + Send + Sync>,
+    ) -> Arc<RwLock<Publisher>> {
+        let (tx, rx) = mpsc::unbounded_channel::<PublisherEvent>();
 
         let publisher = Self {
-            id,
-            track,
-            _rtp_receiver: rtp_receiver,
-            _rtp_transceiver: rtp_transceiver,
-            rtcp_sender,
-            closed_sender: Arc::new(tx),
-            rtp_packet_sender: sender,
+            track_id: track_id.clone(),
+            local_tracks: HashMap::new(),
+            router_sender,
+            publisher_event_sender: tx,
+            close_callback,
         };
+        let publisher = Arc::new(RwLock::new(publisher));
+        {
+            let publisher = Arc::clone(&publisher);
+            tokio::spawn(async move {
+                Publisher::publisher_event_loop(track_id, publisher, rx).await;
+            });
+        }
 
         publisher
     }
 
-    async fn rtp_event_loop(
-        id: String,
-        ssrc: u32,
-        rtp_sender: broadcast::Sender<rtp::packet::Packet>,
+    pub(crate) fn create_local_track(
+        &self,
         track: Arc<TrackRemote>,
-        publisher_closed: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
+        rtp_receiver: Arc<RTCRtpReceiver>,
+        rtp_transceiver: Arc<RTCRtpTransceiver>,
+        rtcp_sender: Arc<transport::RtcpSender>,
     ) {
-        tracing::debug!(
-            "Publisher id={} ssrc={} RTP event loop has started, payload_type={}, mime_type={}",
-            id,
-            ssrc,
-            track.payload_type(),
-            track.codec().capability.mime_type
+        let ssrc = track.ssrc();
+        let local_track = LocalTrack::new(
+            track,
+            rtp_receiver,
+            rtp_transceiver,
+            rtcp_sender,
+            self.publisher_event_sender.clone(),
         );
+        let _ = self
+            .publisher_event_sender
+            .send(PublisherEvent::TrackAdded(ssrc, local_track));
+    }
 
-        let mut last_timestamp = 0;
-
-        loop {
-            let mut publisher_closed = publisher_closed.lock().await;
-            tokio::select! {
-                _closed = publisher_closed.recv() => {
-                    break;
-                }
-                res = track.read_rtp() => {
-                    match res {
-                        Ok((mut rtp, _attr)) => {
-                            let old_timestamp = rtp.header.timestamp;
-                            if last_timestamp == 0 {
-                                rtp.header.timestamp = 0
-                            } else {
-                                rtp.header.timestamp -= last_timestamp;
-                            }
-                            last_timestamp = old_timestamp;
-
-                            tracing::trace!(
-                                "Publisher id={} received RTP ssrc={} seq={} timestamp={}",
-                                id,
-                                rtp.header.ssrc,
-                                rtp.header.sequence_number,
-                                rtp.header.timestamp
-                            );
-
-                            if rtp_sender.receiver_count() > 0 {
-                                if let Err(err) = rtp_sender.send(rtp) {
-                                    tracing::error!("Publisher id={} failed to send rtp: {}", id, err);
-                                }
-                            }
-                        }
-                        Err(webrtc::error::Error::ErrDataChannelNotOpen) => {
-                            break;
-                        }
-                        Err(webrtc::error::Error::ErrClosedPipe) =>{
-                            break;
-                        }
-                        Err(webrtc::error::Error::Interceptor(webrtc::interceptor::Error::Srtp(webrtc_srtp::Error::Util(webrtc_util::Error::ErrBufferClosed)))) => {
-                            break;
-                        }
-                        Err(err) => {
-                            tracing::error!("Publisher id={} failed to read rtp: {:#?}", id, err);
-                            break;
-                        }
-                    }
-                }
-            }
-            sleep(Duration::from_millis(1)).await;
-        }
-
-        tracing::debug!(
-            "Publisher id={} ssrc={} RTP event loop has finished",
-            id,
-            ssrc
-        );
+    // TODO: Get appropriate local track according to preffered layer
+    pub(crate) fn get_local_track(&self) -> Result<&LocalTrack, Error> {
+        self.local_tracks
+            .values()
+            .next()
+            .ok_or(Error::new_publisher(
+                "Publisher does not have track".to_owned(),
+                PublisherErrorKind::TrackNotFoundError,
+            ))
     }
 
     pub async fn close(&self) {
-        self.closed_sender.send(true).unwrap();
+        let _ = self.publisher_event_sender.send(PublisherEvent::Close);
+    }
+
+    pub(crate) async fn publisher_event_loop(
+        id: String,
+        publisher: Arc<RwLock<Publisher>>,
+        mut event_receiver: mpsc::UnboundedReceiver<PublisherEvent>,
+    ) {
+        while let Some(event) = event_receiver.recv().await {
+            match event {
+                PublisherEvent::TrackAdded(ssrc, local_track) => {
+                    let mut p = publisher.write().await;
+                    p.local_tracks.insert(ssrc, local_track);
+                }
+                PublisherEvent::TrackRemoved(ssrc) => {
+                    let mut p = publisher.write().await;
+                    p.local_tracks.remove(&ssrc);
+                    if p.local_tracks.is_empty() {
+                        let _ = p
+                            .router_sender
+                            .send(RouterEvent::PublisherRemoved(id.clone()));
+                        (p.close_callback)(id.clone());
+                    }
+                }
+                PublisherEvent::Close => {
+                    let p = publisher.read().await;
+                    for (_ssrc, track) in &p.local_tracks {
+                        track.close().await;
+                    }
+                }
+            }
+        }
+        tracing::debug!("Publisher {} event loop finished", id);
     }
 }
 
-pub(crate) fn detect_mime_type(mime_type: String) -> MediaType {
-    if mime_type.contains("video") || mime_type.contains("Video") {
-        MediaType::Video
-    } else {
-        MediaType::Audio
-    }
-}
-
-pub(crate) enum MediaType {
-    Video,
-    Audio,
+#[derive(Debug)]
+pub(crate) enum PublisherEvent {
+    TrackAdded(u32, LocalTrack),
+    TrackRemoved(u32),
+    Close,
 }
 
 impl Drop for Publisher {
     fn drop(&mut self) {
-        tracing::debug!("Publisher id={} is dropped", self.id);
+        tracing::debug!("Publisher track_id={} is dropped", self.track_id);
     }
 }
