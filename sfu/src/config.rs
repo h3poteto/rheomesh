@@ -107,6 +107,12 @@ impl WebRTCTransportConfig {
             setting_engine.set_udp_network(udp_network);
         }
 
+        // To prevent duplicated error.
+        // When you publish multiple tracks, you have an error, like
+        // INFO webrtc_srtp::session: srtp ssrc=2133186737 index=9068: duplicated
+        // Perhaps, replay_detector has a bug when multiple ssrc are included in a PeerConnection.
+        setting_engine.disable_srtp_replay_protection(true);
+
         setting_engine
     }
 }
