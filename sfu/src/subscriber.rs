@@ -92,6 +92,8 @@ impl Subscriber {
             media_ssrc
         );
 
+        let mut current_timestamp = 0;
+
         loop {
             tokio::select! {
                 _ = subscriber_closed.recv() => {
@@ -102,7 +104,10 @@ impl Subscriber {
                         break;
                     }
                     match res {
-                        Ok(packet) => {
+                        Ok(mut packet) => {
+                            current_timestamp += packet.header.timestamp;
+                            packet.header.timestamp = current_timestamp;
+
                             tracing::trace!(
                                 "Subscriber id={} write RTP ssrc={} seq={} timestamp={}",
                                 id,

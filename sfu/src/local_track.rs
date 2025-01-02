@@ -94,6 +94,8 @@ impl LocalTrack {
         let mut local_track_closed = closed_sender.subscribe();
         drop(closed_sender);
 
+        let mut last_timestamp = 0;
+
         loop {
             tokio::select! {
                 _closed = local_track_closed.recv() => {
@@ -101,7 +103,15 @@ impl LocalTrack {
                 }
                 res = track.read_rtp() => {
                     match res {
-                        Ok((rtp, _attr)) => {
+                        Ok((mut rtp, _attr)) => {
+                            let old_timestamp = rtp.header.timestamp;
+                            if last_timestamp == 0 {
+                                rtp.header.timestamp = 0
+                            } else {
+                                rtp.header.timestamp -= last_timestamp;
+                            }
+                            last_timestamp = old_timestamp;
+
                             tracing::trace!(
                                 "LocalTrack id={} received RTP ssrc={} seq={} timestamp={}",
                                 track_id,
