@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use enclose::enc;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::sleep;
 use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp;
 use webrtc::{
@@ -133,7 +132,6 @@ impl LocalTrack {
                     }
                 }
             }
-            sleep(Duration::from_millis(1)).await;
         }
 
         tracing::debug!(
