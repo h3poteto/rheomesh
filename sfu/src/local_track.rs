@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use enclose::enc;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc};
 use tokio::time::sleep;
+use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp;
 use webrtc::{
     rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
@@ -23,7 +24,7 @@ pub struct LocalTrack {
     _rtp_receiver: Arc<RTCRtpReceiver>,
     _rtp_transceiver: Arc<RTCRtpTransceiver>,
     pub(crate) rtcp_sender: Arc<transport::RtcpSender>,
-    closed_sender: Arc<mpsc::UnboundedSender<bool>>,
+    closed_sender: broadcast::Sender<bool>,
     pub(crate) rtp_packet_sender: broadcast::Sender<rtp::packet::Packet>,
 }
 
@@ -40,15 +41,24 @@ impl LocalTrack {
         let rid = track.rid().to_string();
 
         let (sender, _reader) = broadcast::channel::<rtp::packet::Packet>(1024);
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = broadcast::channel::<bool>(10);
 
         {
             let track_id = track_id.clone();
-            let closed_receiver = Arc::new(Mutex::new(rx));
+            let closed_sender = tx.clone();
             tokio::spawn(enc!((sender, track) async move {
-                Self::rtp_event_loop(track_id, ssrc.clone(), sender, track, closed_receiver).await;
+                Self::rtp_event_loop(track_id, ssrc.clone(), sender, track, closed_sender).await;
                 let _ = publisher_sender.send(PublisherEvent::TrackRemoved(ssrc));
             }));
+        }
+
+        {
+            let closed_sender = tx.clone();
+            let rtcp_sender = rtcp_sender.clone();
+            let rid = rid.clone();
+            tokio::spawn(async move {
+                Self::pli_send_loop(rtcp_sender, ssrc, &rid, closed_sender).await;
+            });
         }
 
         tracing::debug!("LocalTrack id={} ssrc={} is created", track_id, ssrc);
@@ -61,7 +71,7 @@ impl LocalTrack {
             _rtp_receiver: rtp_receiver,
             _rtp_transceiver: rtp_transceiver,
             rtcp_sender,
-            closed_sender: Arc::new(tx),
+            closed_sender: tx,
             rtp_packet_sender: sender,
         };
 
@@ -73,7 +83,7 @@ impl LocalTrack {
         ssrc: u32,
         rtp_sender: broadcast::Sender<rtp::packet::Packet>,
         track: Arc<TrackRemote>,
-        loacl_track_closed: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
+        closed_sender: broadcast::Sender<bool>,
     ) {
         tracing::debug!(
             "LocalTrack id={} ssrc={} RTP event loop has started, payload_type={}, mime_type={}",
@@ -82,11 +92,12 @@ impl LocalTrack {
             track.payload_type(),
             track.codec().capability.mime_type
         );
+        let mut local_track_closed = closed_sender.subscribe();
+        drop(closed_sender);
 
         let mut last_timestamp = 0;
 
         loop {
-            let mut local_track_closed = loacl_track_closed.lock().await;
             tokio::select! {
                 _closed = local_track_closed.recv() => {
                     break;
@@ -142,23 +153,64 @@ impl LocalTrack {
         );
     }
 
+    async fn pli_send_loop(
+        rtcp_sender: Arc<transport::RtcpSender>,
+        media_ssrc: u32,
+        rid: &str,
+        closed_sender: broadcast::Sender<bool>,
+    ) {
+        tracing::debug!(
+            "Sending pli for stream with ssrc={}, rid={}",
+            media_ssrc,
+            rid
+        );
+        let mut local_track_closed = closed_sender.subscribe();
+        drop(closed_sender);
+
+        loop {
+            let timeout = tokio::time::sleep(Duration::from_secs(3));
+            tokio::pin!(timeout);
+
+            tokio::select! {
+                _closed = local_track_closed.recv() => {
+                    break;
+                }
+                _ = timeout.as_mut() => {
+                    match rtcp_sender.send(Box::new(PictureLossIndication {
+                        sender_ssrc: 0,
+                        media_ssrc,
+                    })) {
+                        Ok(_) => tracing::trace!("sent rtcp pli ssrc={}, rid={}", media_ssrc, rid),
+                        Err(err) => tracing::error!("LocalTrack failed to send rtcp pli ssrc={}, rid={}, {}", media_ssrc, rid, err)
+                    }
+                }
+
+            };
+        }
+        tracing::debug!(
+            "Finish sending pli for stream with ssrc: {}, rid: {}",
+            media_ssrc,
+            rid
+        );
+    }
+
     pub(crate) async fn close(&self) {
         self.closed_sender.send(true).unwrap();
     }
 }
 
-pub(crate) fn detect_mime_type(mime_type: String) -> MediaType {
-    if mime_type.contains("video") || mime_type.contains("Video") {
-        MediaType::Video
-    } else {
-        MediaType::Audio
-    }
-}
+// pub(crate) fn detect_mime_type(mime_type: String) -> MediaType {
+//     if mime_type.contains("video") || mime_type.contains("Video") {
+//         MediaType::Video
+//     } else {
+//         MediaType::Audio
+//     }
+// }
 
-pub(crate) enum MediaType {
-    Video,
-    Audio,
-}
+// pub(crate) enum MediaType {
+//     Video,
+//     Audio,
+// }
 
 impl Drop for LocalTrack {
     fn drop(&mut self) {
