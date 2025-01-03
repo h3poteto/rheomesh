@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use uuid::Uuid;
 
 /// Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Router {
     pub id: String,
     publishers: Vec<(String, Arc<RwLock<Publisher>>)>,

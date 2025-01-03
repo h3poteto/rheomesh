@@ -9,7 +9,7 @@ use webrtc::data_channel::{
 };
 
 #[derive(Derivative)]
-#[derivative(Clone, Debug)]
+#[derivative(Debug)]
 pub struct DataSubscriber {
     pub id: String,
     closed_sender: Arc<mpsc::UnboundedSender<bool>>,
