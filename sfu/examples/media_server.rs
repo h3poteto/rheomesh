@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use actix::{Actor, Addr, Message, StreamHandler};
@@ -7,7 +8,7 @@ use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
-use rheomesh::config::MediaConfig;
+use rheomesh::config::{MediaConfig, RID};
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
@@ -328,6 +329,24 @@ impl Handler<ReceivedMessage> for WebSocket {
                     }
                 });
             }
+            ReceivedMessage::SetPreferredLayer { subscriber_id, rid } => {
+                match RID::from_str(rid.as_str()) {
+                    Ok(rid) => {
+                        let subscribers = self.subscribers.clone();
+                        actix::spawn(async move {
+                            let s = subscribers.lock().await;
+                            if let Some(subscriber) = s.get(&subscriber_id) {
+                                if let Err(err) = subscriber.set_preferred_layer(rid).await {
+                                    tracing::error!("Failed to set preferred layer: {}", err);
+                                }
+                            }
+                        });
+                    }
+                    Err(err) => {
+                        tracing::error!("Failed to parse RID: {}", err);
+                    }
+                }
+            }
         }
     }
 }
@@ -376,6 +395,8 @@ enum ReceivedMessage {
     StopPublish { publisher_id: String },
     #[serde(rename_all = "camelCase")]
     StopSubscribe { subscriber_id: String },
+    #[serde(rename_all = "camelCase")]
+    SetPreferredLayer { subscriber_id: String, rid: String },
 }
 
 #[derive(Serialize, Message, Debug)]

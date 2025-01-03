@@ -194,3 +194,11 @@ pub(crate) fn find_extmap_order(uri: &str) -> Option<u16> {
         .find(|(_, v)| v == uri)
         .map(|(k, _)| k)
 }
+
+#[derive(Debug, Clone, strum::EnumString, strum::Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum RID {
+    LOW,
+    MID,
+    HIGH,
+}
