@@ -1,5 +1,6 @@
-use std::{fmt::Debug, sync::Arc};
+use std::sync::Arc;
 
+use derivative::Derivative;
 use enclose::enc;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
@@ -7,12 +8,14 @@ use webrtc::data_channel::{data_channel_message::DataChannelMessage, RTCDataChan
 
 use crate::router::RouterEvent;
 
-#[derive(Clone)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct DataPublisher {
     pub id: String,
     pub channel_id: u16,
     pub label: String,
     pub(crate) data_sender: broadcast::Sender<DataChannelMessage>,
+    #[derivative(Debug = "ignore")]
     data_channel: Arc<RTCDataChannel>,
 }
 
@@ -71,14 +74,5 @@ impl DataPublisher {
 impl Drop for DataPublisher {
     fn drop(&mut self) {
         tracing::debug!("DataPublisher {} is dropped", self.id);
-    }
-}
-
-impl Debug for DataPublisher {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DataPublisher")
-            .field("id", &self.id)
-            .field("channel_id", &self.channel_id)
-            .finish()
     }
 }

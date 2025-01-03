@@ -30,7 +30,7 @@ use webrtc::{
 
 /// This handle [`webrtc::peer_connection::RTCPeerConnection`] methods for publisher.
 #[derive(Derivative)]
-#[derivative(Clone, Debug)]
+#[derivative(Debug)]
 pub struct PublishTransport {
     pub id: String,
     peer_connection: Arc<RTCPeerConnection>,

@@ -16,7 +16,7 @@ use webrtc::{
 
 use crate::transport;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Subscriber {
     pub id: String,
     closed_sender: broadcast::Sender<bool>,

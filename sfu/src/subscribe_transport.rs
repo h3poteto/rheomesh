@@ -34,7 +34,7 @@ use crate::{
 
 /// This handle [`webrtc::peer_connection::RTCPeerConnection`] methods for subscriber.
 #[derive(Derivative)]
-#[derivative(Clone, Debug)]
+#[derivative(Debug)]
 pub struct SubscribeTransport {
     pub id: String,
     peer_connection: Arc<RTCPeerConnection>,
