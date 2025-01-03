@@ -1,8 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    config::{MediaConfig, WebRTCTransportConfig},
+    config::{MediaConfig, WebRTCTransportConfig, RID},
     data_publisher::DataPublisher,
+    error::{Error, SubscriberErrorKind},
+    local_track::LocalTrack,
     publish_transport::PublishTransport,
     publisher::Publisher,
     subscribe_transport::SubscribeTransport,
@@ -124,6 +126,31 @@ impl Router {
             }
         }
         tracing::debug!("Router {} event loop finished", id);
+    }
+
+    pub(crate) async fn find_local_track(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        publisher_id: String,
+        rid: RID,
+    ) -> Result<Arc<LocalTrack>, Error> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = event_sender.send(RouterEvent::GetPublisher(publisher_id.clone(), tx));
+
+        let reply = rx.await.unwrap();
+        match reply {
+            None => {
+                return Err(Error::new_subscriber(
+                    format!("Publisher for {} is not found", publisher_id),
+                    SubscriberErrorKind::TrackNotFoundError,
+                ))
+            }
+            Some(publisher) => {
+                let guard = publisher.read().await;
+                let local_track = guard.get_local_track(rid.to_string().as_str())?;
+                Ok(local_track)
+            }
+        }
     }
 
     pub fn close(&self) {

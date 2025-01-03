@@ -1,7 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::{
+    atomic::{AtomicU16, AtomicU32, Ordering},
+    Arc,
+};
 
 use enclose::enc;
-use tokio::{sync::broadcast, time::sleep};
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 use webrtc::{
     rtcp::{
@@ -14,52 +17,66 @@ use webrtc::{
     track::track_local::{track_local_static_rtp::TrackLocalStaticRTP, TrackLocalWriter},
 };
 
-use crate::transport;
+use crate::{
+    config::RID,
+    error::Error,
+    router::{Router, RouterEvent},
+    transport,
+};
 
 #[derive(Debug)]
 pub struct Subscriber {
     pub id: String,
+    publisher_id: String,
     closed_sender: broadcast::Sender<bool>,
+    router_event_sender: mpsc::UnboundedSender<RouterEvent>,
+    track_local: Arc<TrackLocalStaticRTP>,
+    publisher_rtcp_sender: Arc<transport::RtcpSender>,
+    rtcp_sender: Arc<RTCRtpSender>,
+    ssrc_sender: broadcast::Sender<u32>,
+    sequence: Arc<AtomicU16>,
+    timestamp: Arc<AtomicU32>,
 }
 
 impl Subscriber {
     pub(crate) fn new(
-        local_track: Arc<TrackLocalStaticRTP>,
+        publisher_id: String,
+        track_local: Arc<TrackLocalStaticRTP>,
         rtp_sender: broadcast::Sender<rtp::packet::Packet>,
         rtcp_sender: Arc<RTCRtpSender>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
         _mime_type: String,
         media_ssrc: u32,
+        router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
         let (tx, _rx) = broadcast::channel::<bool>(1);
+        let (ssrc_tx, _ssrc_rx) = broadcast::channel::<u32>(10);
+        let sequence = Arc::new(AtomicU16::new(0));
+        let timestamp = Arc::new(AtomicU32::new(0));
 
-        {
-            let tx = tx.clone();
-            let id = id.clone();
-            let media_ssrc = media_ssrc.clone();
-            let publisher_rtcp_sender = publisher_rtcp_sender.clone();
-            tokio::spawn(async move {
+        tokio::spawn(
+            enc!((id, media_ssrc, track_local, rtp_sender, tx, publisher_rtcp_sender, ssrc_tx, sequence, timestamp) async move {
                 Self::rtp_event_loop(
                     id,
                     media_ssrc,
-                    local_track,
+                    track_local,
                     rtp_sender,
                     tx,
                     publisher_rtcp_sender,
+                    ssrc_tx,
+                    sequence,
+                    timestamp
                 )
                 .await;
-            });
-        }
+            }),
+        );
 
-        {
-            let tx = tx.clone();
-            let id = id.clone();
-            let media_ssrc = media_ssrc.clone();
-            tokio::spawn(enc!((rtcp_sender, publisher_rtcp_sender) async move {
-                Self::rtcp_event_loop(id, media_ssrc, rtcp_sender, publisher_rtcp_sender, tx).await;
-            }));
-        }
+        tokio::spawn(
+            enc!((rtcp_sender, publisher_rtcp_sender, id, media_ssrc, tx, ssrc_tx) async move {
+                Self::rtcp_event_loop(id, media_ssrc, rtcp_sender, publisher_rtcp_sender, tx, ssrc_tx).await;
+            }),
+        );
 
         tracing::debug!(
             "Subscriber id={} is created for publisher_ssrc={}",
@@ -68,23 +85,94 @@ impl Subscriber {
         );
 
         Self {
+            publisher_id,
             id,
             closed_sender: tx,
+            router_event_sender,
+            track_local,
+            publisher_rtcp_sender,
+            rtcp_sender,
+            ssrc_sender: ssrc_tx,
+            sequence,
+            timestamp,
         }
+    }
+
+    pub async fn set_preferred_layer(&self, rid: RID) -> Result<(), Error> {
+        let local_track = Router::find_local_track(
+            self.router_event_sender.clone(),
+            self.publisher_id.clone(),
+            rid,
+        )
+        .await?;
+
+        let _ = self.ssrc_sender.send(local_track.ssrc.clone());
+
+        {
+            let id = self.id.clone();
+            let ssrc = local_track.ssrc.clone();
+            let track_local = self.track_local.clone();
+            let rtp_sender = local_track.rtp_packet_sender.clone();
+            let closed_sender = self.closed_sender.clone();
+            let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
+            let ssrc_sender = self.ssrc_sender.clone();
+            let sequence = self.sequence.clone();
+            let timestamp = self.timestamp.clone();
+            tokio::spawn(async move {
+                Self::rtp_event_loop(
+                    id,
+                    ssrc,
+                    track_local,
+                    rtp_sender,
+                    closed_sender,
+                    publisher_rtcp_sender,
+                    ssrc_sender,
+                    sequence,
+                    timestamp,
+                )
+                .await;
+            });
+        }
+        {
+            let id = self.id.clone();
+            let ssrc = local_track.ssrc.clone();
+            let rtcp_sender = self.rtcp_sender.clone();
+            let closed_sender = self.closed_sender.clone();
+            let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
+            let ssrc_sender = self.ssrc_sender.clone();
+            tokio::spawn(async move {
+                Self::rtcp_event_loop(
+                    id,
+                    ssrc,
+                    rtcp_sender,
+                    publisher_rtcp_sender,
+                    closed_sender,
+                    ssrc_sender,
+                )
+                .await;
+            });
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn rtp_event_loop(
         id: String,
         media_ssrc: u32,
-        local_track: Arc<TrackLocalStaticRTP>,
+        track_local: Arc<TrackLocalStaticRTP>,
         rtp_sender: broadcast::Sender<rtp::packet::Packet>,
         subscriber_closed_sender: broadcast::Sender<bool>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
+        ssrc_sender: broadcast::Sender<u32>,
+        init_sequence: Arc<AtomicU16>,
+        init_timestamp: Arc<AtomicU32>,
     ) {
         let mut rtp_receiver = rtp_sender.subscribe();
         drop(rtp_sender);
         let mut subscriber_closed = subscriber_closed_sender.subscribe();
         drop(subscriber_closed_sender);
+        let mut ssrc_receiver = ssrc_sender.subscribe();
+        drop(ssrc_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTP event loop has started",
@@ -92,10 +180,16 @@ impl Subscriber {
             media_ssrc
         );
 
-        let mut current_timestamp = 0;
+        let mut current_timestamp = init_timestamp.load(Ordering::Relaxed);
+        let mut last_sequence_number: u16 = init_sequence.load(Ordering::Relaxed);
 
         loop {
             tokio::select! {
+                Ok(new_ssrc) = ssrc_receiver.recv() => {
+                    if media_ssrc != new_ssrc {
+                        break;
+                    }
+                }
                 _ = subscriber_closed.recv() => {
                     break;
                 }
@@ -107,6 +201,8 @@ impl Subscriber {
                         Ok(mut packet) => {
                             current_timestamp += packet.header.timestamp;
                             packet.header.timestamp = current_timestamp;
+                            last_sequence_number = last_sequence_number.wrapping_add(1);
+                            packet.header.sequence_number = last_sequence_number;
 
                             tracing::trace!(
                                 "Subscriber id={} write RTP ssrc={} seq={} timestamp={}",
@@ -117,7 +213,7 @@ impl Subscriber {
                             );
 
 
-                            if let Err(err) = local_track.write_rtp(&packet).await {
+                            if let Err(err) = track_local.write_rtp(&packet).await {
                                 tracing::error!("Subscriber id={} failed to write rtp: {}", id, err)
                             }
                         }
@@ -128,10 +224,12 @@ impl Subscriber {
                             tracing::error!("Subscriber id={} failed to read rtp: {}", id, err);
                         }
                     }
-                    sleep(Duration::from_millis(1)).await;
                 }
             }
         }
+
+        init_sequence.store(last_sequence_number, Ordering::Relaxed);
+        init_timestamp.store(current_timestamp, Ordering::Relaxed);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTP event loop has finished",
@@ -146,9 +244,12 @@ impl Subscriber {
         rtcp_sender: Arc<RTCRtpSender>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
         subscriber_closed_sender: broadcast::Sender<bool>,
+        ssrc_sender: broadcast::Sender<u32>,
     ) {
         let mut subscriber_closed = subscriber_closed_sender.subscribe();
         drop(subscriber_closed_sender);
+        let mut ssrc_receiver = ssrc_sender.subscribe();
+        drop(ssrc_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTCP event loop has started",
@@ -158,6 +259,11 @@ impl Subscriber {
 
         loop {
             tokio::select! {
+                Ok(new_ssrc) = ssrc_receiver.recv() => {
+                    if media_ssrc != new_ssrc {
+                        break;
+                    }
+                }
                 _ = subscriber_closed.recv() => {
                     break;
                 }

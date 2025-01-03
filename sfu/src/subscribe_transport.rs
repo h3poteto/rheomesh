@@ -20,11 +20,12 @@ use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSampl
 use webrtc_sdp::attribute_type::{SdpAttribute, SdpAttributeType};
 use webrtc_sdp::parse_sdp;
 
-use crate::config::{find_extmap_order, MediaConfig, WebRTCTransportConfig};
+use crate::config::{find_extmap_order, MediaConfig, WebRTCTransportConfig, RID};
 use crate::data_publisher::DataPublisher;
 use crate::data_subscriber::DataSubscriber;
 use crate::local_track::LocalTrack;
 use crate::prober::Prober;
+use crate::router::Router;
 use crate::subscriber::Subscriber;
 use crate::transport::{OnIceCandidateFn, OnNegotiationNeededFn, PeerConnection, Transport};
 use crate::{
@@ -97,40 +98,24 @@ impl SubscribeTransport {
         // We have to add a track before creating offer.
         // https://datatracker.ietf.org/doc/html/rfc3264
         // https://github.com/webrtc-rs/webrtc/issues/115#issuecomment-1958137875
-        let (tx, rx) = oneshot::channel();
-
-        let _ = self
-            .router_event_sender
-            .send(RouterEvent::GetPublisher(publisher_id.clone(), tx));
-
-        let reply = rx.await.unwrap();
-        match reply {
-            None => {
-                return Err(Error::new_subscriber(
-                    format!("Publisher for {} is not found", publisher_id),
-                    SubscriberErrorKind::TrackNotFoundError,
-                ))
-            }
-            Some(publisher) => {
-                while self.signaling_pending.load(Ordering::Relaxed) {
-                    sleep(Duration::from_millis(10)).await;
-                }
-                self.signaling_pending.store(true, Ordering::Relaxed);
-
-                #[allow(unused)]
-                let mut subscriber: Option<Subscriber> = None;
-                {
-                    let guard = publisher.read().await;
-                    // TODO: get appropriate rid
-                    let local_track = guard.get_local_track("high")?;
-                    subscriber = Some(self.subscribe_track(local_track).await?);
-                }
-                let subscriber = subscriber.expect("Invalid subscriber");
-
-                let offer = self.create_offer().await?;
-                Ok((subscriber, offer))
-            }
+        let local_track = self
+            .find_local_track(publisher_id.clone(), RID::HIGH)
+            .await?;
+        while self.signaling_pending.load(Ordering::Relaxed) {
+            sleep(Duration::from_millis(10)).await;
         }
+        self.signaling_pending.store(true, Ordering::Relaxed);
+        let subscriber = self.subscribe_track(publisher_id, local_track).await?;
+        let offer = self.create_offer().await?;
+        Ok((subscriber, offer))
+    }
+
+    pub(crate) async fn find_local_track(
+        &self,
+        publisher_id: String,
+        rid: RID,
+    ) -> Result<Arc<LocalTrack>, Error> {
+        Router::find_local_track(self.router_event_sender.clone(), publisher_id, rid).await
     }
 
     /// This starts subscribing the data channel and returns an offer sdp. Please provide a [`crate::data_publisher::DataPublisher`] ID.
@@ -204,7 +189,11 @@ impl SubscribeTransport {
         Ok(())
     }
 
-    async fn subscribe_track(&self, local_track: &LocalTrack) -> Result<Subscriber, Error> {
+    async fn subscribe_track(
+        &self,
+        publisher_id: String,
+        local_track: Arc<LocalTrack>,
+    ) -> Result<Subscriber, Error> {
         let publisher_rtcp_sender = local_track.rtcp_sender.clone();
         let mime_type = local_track.track.codec().capability.mime_type;
 
@@ -222,12 +211,14 @@ impl SubscribeTransport {
         let rtp_sender = local_track.rtp_packet_sender.clone();
 
         let subscriber = Subscriber::new(
+            publisher_id,
             local_track_rtp,
             rtp_sender,
             rtcp_sender,
             publisher_rtcp_sender,
             mime_type,
             media_ssrc,
+            self.router_event_sender.clone(),
         );
 
         if let None = self.peer_connection.current_local_description().await {

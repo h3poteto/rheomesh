@@ -15,6 +15,10 @@ const EXTMAP_ORDER: { [key: string]: number } = {
   "http://www.webrtc.org/experiments/rtp-hdrext/video-layers-allocation00": 15,
 };
 
+const RID_LOW = "low";
+const RID_MID = "mid";
+const RID_HIGH = "high";
+
 export function findExtmapOrder(uri: string): number | null {
   const order = EXTMAP_ORDER[uri];
   if (order) {
@@ -26,8 +30,8 @@ export function findExtmapOrder(uri: string): number | null {
 
 export function simulcastEncodings(): Array<RTCRtpEncodingParameters> {
   return [
-    { rid: "low", maxBitrate: 125000, scaleResolutionDownBy: 4.0 },
-    { rid: "mid", maxBitrate: 500000, scaleResolutionDownBy: 2.0 },
-    { rid: "high", maxBitrate: 2500000, scaleResolutionDownBy: 1.0 },
+    { rid: RID_LOW, maxBitrate: 125000, scaleResolutionDownBy: 4.0 },
+    { rid: RID_MID, maxBitrate: 500000, scaleResolutionDownBy: 2.0 },
+    { rid: RID_HIGH, maxBitrate: 2500000, scaleResolutionDownBy: 1.0 },
   ];
 }

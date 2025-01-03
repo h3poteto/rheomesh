@@ -226,6 +226,18 @@ export default function Room() {
     setConnected(false);
   };
 
+  const setPrefferedLayer = (rid: string) => {
+    subscriberIds.forEach((id) => {
+      ws.current!.send(
+        JSON.stringify({
+          action: "SetPreferredLayer",
+          subscriberId: id,
+          rid: rid,
+        }),
+      );
+    });
+  };
+
   return (
     <div>
       <h1>Room: {room}</h1>
@@ -242,6 +254,11 @@ export default function Room() {
         <button onClick={mic} disabled={localAudio !== undefined || !connected}>
           Mic
         </button>
+        <select onChange={(e) => setPrefferedLayer(e.target.value)}>
+          <option value="high">High</option>
+          <option value="mid">Middle</option>
+          <option value="low">Low</option>
+        </select>
         <button onClick={stop} disabled={!connected}>
           Stop
         </button>

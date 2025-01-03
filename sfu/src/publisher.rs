@@ -18,7 +18,7 @@ use crate::{
 #[derivative(Debug)]
 pub struct Publisher {
     pub track_id: String,
-    local_tracks: HashMap<u32, LocalTrack>,
+    local_tracks: HashMap<u32, Arc<LocalTrack>>,
     router_sender: mpsc::UnboundedSender<RouterEvent>,
     publisher_event_sender: mpsc::UnboundedSender<PublisherEvent>,
     #[derivative(Debug = "ignore")]
@@ -69,31 +69,42 @@ impl Publisher {
             rtcp_sender,
             self.publisher_event_sender.clone(),
         );
-        let _ =
-            self.publisher_event_sender
-                .send(PublisherEvent::TrackAdded(ssrc, rid, local_track));
+        let _ = self.publisher_event_sender.send(PublisherEvent::TrackAdded(
+            ssrc,
+            rid,
+            Arc::new(local_track),
+        ));
     }
 
-    pub(crate) fn get_local_track(&self, rid: &str) -> Result<&LocalTrack, Error> {
+    pub(crate) fn get_local_track(&self, rid: &str) -> Result<Arc<LocalTrack>, Error> {
         if let Some(ssrc) = self.rid_to_ssrc.get(rid) {
             if let Some(track) = self.local_tracks.get(ssrc) {
-                Ok(track)
+                tracing::debug!(
+                    "Found specified local track with rid={}, ssrc={}",
+                    rid,
+                    track.ssrc
+                );
+                Ok(track.clone())
             } else {
+                tracing::debug!("Failed to find track for rid={} and ssrc={}", rid, ssrc);
                 self.get_random_local_track()
             }
         } else {
+            tracing::debug!("Faild to find ssrc for rid={}", rid);
             self.get_random_local_track()
         }
     }
 
-    fn get_random_local_track(&self) -> Result<&LocalTrack, Error> {
-        self.local_tracks
+    fn get_random_local_track(&self) -> Result<Arc<LocalTrack>, Error> {
+        let track = self
+            .local_tracks
             .values()
             .next()
             .ok_or(Error::new_publisher(
                 "Publisher does not have track".to_owned(),
                 PublisherErrorKind::TrackNotFoundError,
-            ))
+            ))?;
+        Ok(track.clone())
     }
 
     pub async fn close(&self) {
@@ -138,7 +149,7 @@ impl Publisher {
 
 #[derive(Debug)]
 pub(crate) enum PublisherEvent {
-    TrackAdded(u32, String, LocalTrack),
+    TrackAdded(u32, String, Arc<LocalTrack>),
     TrackRemoved(u32),
     Close,
 }
