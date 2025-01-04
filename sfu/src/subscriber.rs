@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use enclose::enc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
     rtcp::{
@@ -33,9 +33,10 @@ pub struct Subscriber {
     track_local: Arc<TrackLocalStaticRTP>,
     publisher_rtcp_sender: Arc<transport::RtcpSender>,
     rtcp_sender: Arc<RTCRtpSender>,
-    ssrc_sender: broadcast::Sender<u32>,
     sequence: Arc<AtomicU16>,
     timestamp: Arc<AtomicU32>,
+    rtp_lock: Arc<Mutex<bool>>,
+    rtcp_lock: Arc<Mutex<bool>>,
 }
 
 impl Subscriber {
@@ -51,12 +52,13 @@ impl Subscriber {
     ) -> Self {
         let id = Uuid::new_v4().to_string();
         let (tx, _rx) = broadcast::channel::<bool>(1);
-        let (ssrc_tx, _ssrc_rx) = broadcast::channel::<u32>(10);
+
         let sequence = Arc::new(AtomicU16::new(0));
         let timestamp = Arc::new(AtomicU32::new(0));
+        let rtp_lock = Arc::new(Mutex::new(true));
 
         tokio::spawn(
-            enc!((id, media_ssrc, track_local, rtp_sender, tx, publisher_rtcp_sender, ssrc_tx, sequence, timestamp) async move {
+            enc!((id, media_ssrc, track_local, rtp_sender, tx, publisher_rtcp_sender, rtp_lock, sequence, timestamp) async move {
                 Self::rtp_event_loop(
                     id,
                     media_ssrc,
@@ -64,7 +66,7 @@ impl Subscriber {
                     rtp_sender,
                     tx,
                     publisher_rtcp_sender,
-                    ssrc_tx,
+                    rtp_lock,
                     sequence,
                     timestamp
                 )
@@ -72,9 +74,11 @@ impl Subscriber {
             }),
         );
 
+        let rtcp_lock = Arc::new(Mutex::new(true));
+
         tokio::spawn(
-            enc!((rtcp_sender, publisher_rtcp_sender, id, media_ssrc, tx, ssrc_tx) async move {
-                Self::rtcp_event_loop(id, media_ssrc, rtcp_sender, publisher_rtcp_sender, tx, ssrc_tx).await;
+            enc!((rtcp_sender, publisher_rtcp_sender, id, media_ssrc, tx, rtcp_lock) async move {
+                Self::rtcp_event_loop(id, media_ssrc, rtcp_sender, publisher_rtcp_sender, tx, rtcp_lock).await;
             }),
         );
 
@@ -92,9 +96,10 @@ impl Subscriber {
             track_local,
             publisher_rtcp_sender,
             rtcp_sender,
-            ssrc_sender: ssrc_tx,
             sequence,
             timestamp,
+            rtp_lock,
+            rtcp_lock,
         }
     }
 
@@ -106,8 +111,6 @@ impl Subscriber {
         )
         .await?;
 
-        let _ = self.ssrc_sender.send(local_track.ssrc.clone());
-
         {
             let id = self.id.clone();
             let ssrc = local_track.ssrc.clone();
@@ -115,7 +118,7 @@ impl Subscriber {
             let rtp_sender = local_track.rtp_packet_sender.clone();
             let closed_sender = self.closed_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
-            let ssrc_sender = self.ssrc_sender.clone();
+            let rtp_lock = self.rtp_lock.clone();
             let sequence = self.sequence.clone();
             let timestamp = self.timestamp.clone();
             tokio::spawn(async move {
@@ -126,7 +129,7 @@ impl Subscriber {
                     rtp_sender,
                     closed_sender,
                     publisher_rtcp_sender,
-                    ssrc_sender,
+                    rtp_lock,
                     sequence,
                     timestamp,
                 )
@@ -139,7 +142,7 @@ impl Subscriber {
             let rtcp_sender = self.rtcp_sender.clone();
             let closed_sender = self.closed_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
-            let ssrc_sender = self.ssrc_sender.clone();
+            let loop_lock = self.rtcp_lock.clone();
             tokio::spawn(async move {
                 Self::rtcp_event_loop(
                     id,
@@ -147,11 +150,13 @@ impl Subscriber {
                     rtcp_sender,
                     publisher_rtcp_sender,
                     closed_sender,
-                    ssrc_sender,
+                    loop_lock,
                 )
                 .await;
             });
         }
+
+        let _ = self.closed_sender.send(true);
 
         Ok(())
     }
@@ -163,16 +168,16 @@ impl Subscriber {
         rtp_sender: broadcast::Sender<rtp::packet::Packet>,
         subscriber_closed_sender: broadcast::Sender<bool>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
-        ssrc_sender: broadcast::Sender<u32>,
+        loop_lock: Arc<Mutex<bool>>,
         init_sequence: Arc<AtomicU16>,
         init_timestamp: Arc<AtomicU32>,
     ) {
+        let mut _gurad = loop_lock.lock().await;
+
         let mut rtp_receiver = rtp_sender.subscribe();
         drop(rtp_sender);
         let mut subscriber_closed = subscriber_closed_sender.subscribe();
         drop(subscriber_closed_sender);
-        let mut ssrc_receiver = ssrc_sender.subscribe();
-        drop(ssrc_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTP event loop has started",
@@ -185,11 +190,6 @@ impl Subscriber {
 
         loop {
             tokio::select! {
-                Ok(new_ssrc) = ssrc_receiver.recv() => {
-                    if media_ssrc != new_ssrc {
-                        break;
-                    }
-                }
                 _ = subscriber_closed.recv() => {
                     break;
                 }
@@ -244,12 +244,12 @@ impl Subscriber {
         rtcp_sender: Arc<RTCRtpSender>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
         subscriber_closed_sender: broadcast::Sender<bool>,
-        ssrc_sender: broadcast::Sender<u32>,
+        loop_lock: Arc<Mutex<bool>>,
     ) {
+        let mut _guard = loop_lock.lock().await;
+
         let mut subscriber_closed = subscriber_closed_sender.subscribe();
         drop(subscriber_closed_sender);
-        let mut ssrc_receiver = ssrc_sender.subscribe();
-        drop(ssrc_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTCP event loop has started",
@@ -259,11 +259,6 @@ impl Subscriber {
 
         loop {
             tokio::select! {
-                Ok(new_ssrc) = ssrc_receiver.recv() => {
-                    if media_ssrc != new_ssrc {
-                        break;
-                    }
-                }
                 _ = subscriber_closed.recv() => {
                     break;
                 }
