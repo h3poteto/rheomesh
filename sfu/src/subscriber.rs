@@ -37,6 +37,7 @@ pub struct Subscriber {
     timestamp: Arc<AtomicU32>,
     rtp_lock: Arc<Mutex<bool>>,
     rtcp_lock: Arc<Mutex<bool>>,
+    media_ssrc: u32,
 }
 
 impl Subscriber {
@@ -49,7 +50,7 @@ impl Subscriber {
         _mime_type: String,
         media_ssrc: u32,
         router_event_sender: mpsc::UnboundedSender<RouterEvent>,
-    ) -> Self {
+    ) -> (Arc<Mutex<Self>>, mpsc::UnboundedSender<SubscriberEvent>) {
         let id = Uuid::new_v4().to_string();
         let (tx, _rx) = broadcast::channel::<bool>(1);
 
@@ -82,16 +83,18 @@ impl Subscriber {
             }),
         );
 
+        let (event_sender, event_receiver) = mpsc::unbounded_channel::<SubscriberEvent>();
+
         tracing::debug!(
             "Subscriber id={} is created for publisher_ssrc={}",
             id,
             media_ssrc
         );
 
-        Self {
+        let subscriber = Arc::new(Mutex::new(Self {
             publisher_id,
             id,
-            closed_sender: tx,
+            closed_sender: tx.clone(),
             router_event_sender,
             track_local,
             publisher_rtcp_sender,
@@ -100,16 +103,28 @@ impl Subscriber {
             timestamp,
             rtp_lock,
             rtcp_lock,
-        }
+            media_ssrc,
+        }));
+
+        tokio::spawn(enc!((subscriber, tx) async move {
+            Self::subscriber_event_loop(subscriber, event_receiver, tx).await;
+        }));
+
+        (subscriber, event_sender)
     }
 
-    pub async fn set_preferred_layer(&self, rid: RID) -> Result<(), Error> {
+    pub async fn set_preferred_layer(&mut self, rid: RID) -> Result<(), Error> {
         let local_track = Router::find_local_track(
             self.router_event_sender.clone(),
             self.publisher_id.clone(),
             rid,
         )
         .await?;
+
+        if local_track.ssrc == self.media_ssrc {
+            return Ok(());
+        }
+        self.media_ssrc = local_track.ssrc;
 
         {
             let id = self.id.clone();
@@ -321,6 +336,28 @@ impl Subscriber {
         );
     }
 
+    pub(crate) async fn subscriber_event_loop(
+        subscriber: Arc<Mutex<Subscriber>>,
+        mut event_receiver: mpsc::UnboundedReceiver<SubscriberEvent>,
+        subscriber_closed_sender: broadcast::Sender<bool>,
+    ) {
+        // let mut subscriber_closed = subscriber_closed_sender.subscribe();
+        // drop(subscriber_closed_sender);
+
+        tokio::select! {
+            Some(event) = event_receiver.recv() => {
+                match event {
+                    SubscriberEvent::SetPrefferedLayer(rid) => {
+                        let mut guard = subscriber.lock().await;
+                        if let Err(err) = guard.set_preferred_layer(rid).await {
+                            tracing::error!("Failed to set preferred layer: {}", err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn close(&self) {
         self.closed_sender.send(true).unwrap();
     }
@@ -330,4 +367,8 @@ impl Drop for Subscriber {
     fn drop(&mut self) {
         tracing::debug!("Subscriber id={} is dropped", self.id);
     }
+}
+
+pub(crate) enum SubscriberEvent {
+    SetPrefferedLayer(RID),
 }

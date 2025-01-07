@@ -94,7 +94,7 @@ impl SubscribeTransport {
     pub async fn subscribe(
         &self,
         publisher_id: String,
-    ) -> Result<(Subscriber, RTCSessionDescription), Error> {
+    ) -> Result<(Arc<Mutex<Subscriber>>, RTCSessionDescription), Error> {
         // We have to add a track before creating offer.
         // https://datatracker.ietf.org/doc/html/rfc3264
         // https://github.com/webrtc-rs/webrtc/issues/115#issuecomment-1958137875
@@ -193,7 +193,7 @@ impl SubscribeTransport {
         &self,
         publisher_id: String,
         local_track: Arc<LocalTrack>,
-    ) -> Result<Subscriber, Error> {
+    ) -> Result<Arc<Mutex<Subscriber>>, Error> {
         let publisher_rtcp_sender = local_track.rtcp_sender.clone();
         let mime_type = local_track.track.codec().capability.mime_type;
 
@@ -210,8 +210,8 @@ impl SubscribeTransport {
         let media_ssrc = local_track.track.ssrc();
         let rtp_sender = local_track.rtp_packet_sender.clone();
 
-        let subscriber = Subscriber::new(
-            publisher_id,
+        let (subscriber, event_sender) = Subscriber::new(
+            publisher_id.clone(),
             local_track_rtp,
             rtp_sender,
             rtcp_sender,
@@ -220,6 +220,13 @@ impl SubscribeTransport {
             media_ssrc,
             self.router_event_sender.clone(),
         );
+
+        {
+            let publisher =
+                Router::find_publisher(self.router_event_sender.clone(), publisher_id).await?;
+            let mut guard = publisher.lock().await;
+            guard.set_subscriber_event(event_sender);
+        }
 
         if let None = self.peer_connection.current_local_description().await {
             let _ = self.add_probe().await?;

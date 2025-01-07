@@ -13,7 +13,7 @@ use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -90,8 +90,8 @@ struct WebSocket {
     room: Arc<Room>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
-    publishers: Arc<Mutex<HashMap<String, Arc<RwLock<Publisher>>>>>,
-    subscribers: Arc<Mutex<HashMap<String, Arc<Subscriber>>>>,
+    publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
+    subscribers: Arc<Mutex<HashMap<String, Arc<Mutex<Subscriber>>>>>,
 }
 
 impl WebSocket {
@@ -263,9 +263,14 @@ impl Handler<ReceivedMessage> for WebSocket {
                         .await
                         .expect("failed to connect subscribe_transport");
 
-                    let id = subscriber.id.clone();
+                    #[allow(unused)]
+                    let mut id = "".to_owned();
+                    {
+                        let guard = subscriber.lock().await;
+                        id = guard.id.clone();
+                    }
                     let mut s = subscribers.lock().await;
-                    s.insert(subscriber.id.clone(), Arc::new(subscriber));
+                    s.insert(id.clone(), subscriber);
                     address.do_send(SendingMessage::Offer { sdp: offer });
                     address.do_send(SendingMessage::Subscribed { subscriber_id: id })
                 });
@@ -289,7 +294,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                             #[allow(unused)]
                             let mut track_id = "".to_owned();
                             {
-                                let publisher = publisher.read().await;
+                                let publisher = publisher.lock().await;
                                 track_id = publisher.track_id.clone();
                             }
                             tracing::debug!("published a track: {}", track_id);
@@ -315,7 +320,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     let mut p = publishers.lock().await;
                     if let Some(publisher) = p.remove(&publisher_id) {
-                        let publisher = publisher.read().await;
+                        let publisher = publisher.lock().await;
                         publisher.close().await;
                     }
                 });
@@ -325,7 +330,8 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     let mut s = subscribers.lock().await;
                     if let Some(subscriber) = s.remove(&subscriber_id) {
-                        subscriber.close().await;
+                        let guard = subscriber.lock().await;
+                        guard.close().await;
                     }
                 });
             }
@@ -336,6 +342,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                         actix::spawn(async move {
                             let s = subscribers.lock().await;
                             if let Some(subscriber) = s.get(&subscriber_id) {
+                                let mut subscriber = subscriber.lock().await;
                                 if let Err(err) = subscriber.set_preferred_layer(rid).await {
                                     tracing::error!("Failed to set preferred layer: {}", err);
                                 }

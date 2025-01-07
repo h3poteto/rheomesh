@@ -2,7 +2,7 @@ use crate::{
     config::{MediaConfig, WebRTCTransportConfig},
     data_publisher::DataPublisher,
     error::{Error, PublisherErrorKind, TransportErrorKind},
-    publisher::Publisher,
+    publisher::{Publisher, PublisherType},
     router::RouterEvent,
     transport::{OnIceCandidateFn, OnTrackFn, PeerConnection, RtcpReceiver, RtcpSender, Transport},
 };
@@ -15,7 +15,7 @@ use std::{
         Arc,
     },
 };
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
     data_channel::RTCDataChannel,
@@ -35,8 +35,8 @@ pub struct PublishTransport {
     pub id: String,
     peer_connection: Arc<RTCPeerConnection>,
     pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
-    published_sender: broadcast::Sender<Arc<RwLock<Publisher>>>,
-    published_receiver: Arc<Mutex<broadcast::Receiver<Arc<RwLock<Publisher>>>>>,
+    published_sender: broadcast::Sender<Arc<Mutex<Publisher>>>,
+    published_receiver: Arc<Mutex<broadcast::Receiver<Arc<Mutex<Publisher>>>>>,
     data_published_sender: broadcast::Sender<Arc<DataPublisher>>,
     data_published_receiver: Arc<Mutex<broadcast::Receiver<Arc<DataPublisher>>>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
@@ -51,7 +51,7 @@ pub struct PublishTransport {
     #[derivative(Debug = "ignore")]
     on_track_fn: Arc<Mutex<OnTrackFn>>,
     signaling_pending: Arc<AtomicBool>,
-    publishers: Arc<Mutex<HashMap<String, Arc<RwLock<Publisher>>>>>,
+    publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
 }
 
 impl PublishTransport {
@@ -106,13 +106,13 @@ impl PublishTransport {
         Ok(answer)
     }
 
-    pub async fn publish(&self, track_id: String) -> Result<Arc<RwLock<Publisher>>, Error> {
+    pub async fn publish(&self, track_id: String) -> Result<Arc<Mutex<Publisher>>, Error> {
         let receiver = self.published_receiver.clone();
         while let Ok(publisher) = receiver.lock().await.recv().await {
             #[allow(unused)]
             let mut published_track_id = "".to_owned();
             {
-                let p = publisher.read().await;
+                let p = publisher.lock().await;
                 published_track_id = p.track_id.clone();
             }
             if published_track_id == track_id {
@@ -241,16 +241,17 @@ impl PublishTransport {
                 Box::pin(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers) async move {
                     let id = track.id();
                     let ssrc = track.ssrc();
-                    tracing::info!("Track published: track_id={}, ssrc={}", id, ssrc);
+                    tracing::info!("Track published: track_id={}, ssrc={}, rid={}", id, ssrc, track.rid());
 
                     {
                         let publishers_clone = publishers.clone();
                         let mut publishers = publishers.lock().await;
                         if let Some(p) = publishers.get(&id) {
-                            let publisher = p.read().await;
+                            let mut publisher = p.lock().await;
                             publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
+                            publisher.set_publisher_type(PublisherType::Simulcast);
                         } else {
-                            let publisher = Publisher::new(id.clone(), router_sender.clone(), Box::new(move |closed_id| {
+                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple , Box::new(move |closed_id| {
                                 let publishers_clone = publishers_clone.clone();
                                 tokio::spawn(async move {
                                     let mut guard = publishers_clone.lock().await;
@@ -258,7 +259,7 @@ impl PublishTransport {
                                 });
                             }));
                             {
-                                let publisher = publisher.read().await;
+                                let publisher = publisher.lock().await;
                                 publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
                             }
 

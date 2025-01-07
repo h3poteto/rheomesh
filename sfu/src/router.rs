@@ -9,14 +9,14 @@ use crate::{
     publisher::Publisher,
     subscribe_transport::SubscribeTransport,
 };
-use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
 
 /// Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
 #[derive(Debug)]
 pub struct Router {
     pub id: String,
-    publishers: Vec<(String, Arc<RwLock<Publisher>>)>,
+    publishers: Vec<(String, Arc<Mutex<Publisher>>)>,
     data_publishers: HashMap<String, Arc<DataPublisher>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
@@ -128,11 +128,10 @@ impl Router {
         tracing::debug!("Router {} event loop finished", id);
     }
 
-    pub(crate) async fn find_local_track(
+    pub(crate) async fn find_publisher(
         event_sender: mpsc::UnboundedSender<RouterEvent>,
         publisher_id: String,
-        rid: RID,
-    ) -> Result<Arc<LocalTrack>, Error> {
+    ) -> Result<Arc<Mutex<Publisher>>, Error> {
         let (tx, rx) = oneshot::channel();
 
         let _ = event_sender.send(RouterEvent::GetPublisher(publisher_id.clone(), tx));
@@ -145,12 +144,19 @@ impl Router {
                     SubscriberErrorKind::TrackNotFoundError,
                 ))
             }
-            Some(publisher) => {
-                let guard = publisher.read().await;
-                let local_track = guard.get_local_track(rid.to_string().as_str())?;
-                Ok(local_track)
-            }
+            Some(publisher) => Ok(publisher),
         }
+    }
+
+    pub(crate) async fn find_local_track(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        publisher_id: String,
+        rid: RID,
+    ) -> Result<Arc<LocalTrack>, Error> {
+        let publisher = Self::find_publisher(event_sender, publisher_id).await?;
+        let guard = publisher.lock().await;
+        let local_track = guard.get_local_track(rid.to_string().as_str())?;
+        Ok(local_track)
     }
 
     pub fn close(&self) {
@@ -160,11 +166,11 @@ impl Router {
 
 #[derive(Debug)]
 pub(crate) enum RouterEvent {
-    MediaPublished(String, Arc<RwLock<Publisher>>),
+    MediaPublished(String, Arc<Mutex<Publisher>>),
     PublisherRemoved(String),
     DataPublished(Arc<DataPublisher>),
     DataRemoved(String),
-    GetPublisher(String, oneshot::Sender<Option<Arc<RwLock<Publisher>>>>),
+    GetPublisher(String, oneshot::Sender<Option<Arc<Mutex<Publisher>>>>),
     GetDataPublisher(String, oneshot::Sender<Option<Arc<DataPublisher>>>),
     Closed,
 }
