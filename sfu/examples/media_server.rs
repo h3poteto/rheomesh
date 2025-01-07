@@ -13,7 +13,7 @@ use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -90,7 +90,7 @@ struct WebSocket {
     room: Arc<Room>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
-    publishers: Arc<Mutex<HashMap<String, Arc<RwLock<Publisher>>>>>,
+    publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     subscribers: Arc<Mutex<HashMap<String, Arc<Subscriber>>>>,
 }
 
@@ -289,7 +289,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                             #[allow(unused)]
                             let mut track_id = "".to_owned();
                             {
-                                let publisher = publisher.read().await;
+                                let publisher = publisher.lock().await;
                                 track_id = publisher.track_id.clone();
                             }
                             tracing::debug!("published a track: {}", track_id);
@@ -315,7 +315,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     let mut p = publishers.lock().await;
                     if let Some(publisher) = p.remove(&publisher_id) {
-                        let publisher = publisher.read().await;
+                        let publisher = publisher.lock().await;
                         publisher.close().await;
                     }
                 });
