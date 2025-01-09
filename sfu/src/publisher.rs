@@ -8,9 +8,11 @@ use webrtc::{
 };
 
 use crate::{
+    config::RID,
     error::{Error, PublisherErrorKind},
     local_track::LocalTrack,
     router::RouterEvent,
+    subscriber::SubscriberEvent,
     transport,
 };
 
@@ -25,6 +27,7 @@ pub struct Publisher {
     close_callback: Box<dyn Fn(String) + Send + Sync>,
     rid_to_ssrc: HashMap<String, u32>,
     pub publisher_type: PublisherType,
+    subscriber_event_sender: Vec<mpsc::UnboundedSender<SubscriberEvent>>,
 }
 
 impl Publisher {
@@ -44,6 +47,7 @@ impl Publisher {
             close_callback,
             rid_to_ssrc: HashMap::new(),
             publisher_type,
+            subscriber_event_sender: vec![],
         };
         let publisher = Arc::new(Mutex::new(publisher));
         {
@@ -110,8 +114,20 @@ impl Publisher {
         Ok(track.clone())
     }
 
+    pub(crate) fn set_subscriber_event_sender(
+        &mut self,
+        event_sender: mpsc::UnboundedSender<SubscriberEvent>,
+    ) {
+        self.subscriber_event_sender.push(event_sender);
+    }
+
     pub(crate) fn set_publisher_type(&mut self, publisher_type: PublisherType) {
         self.publisher_type = publisher_type;
+        for sender in self.subscriber_event_sender.iter() {
+            if let Err(err) = sender.send(SubscriberEvent::SetPrefferedLayer(RID::HIGH)) {
+                tracing::error!("Failed to send subscriber event: {}", err);
+            }
+        }
     }
 
     pub async fn close(&self) {

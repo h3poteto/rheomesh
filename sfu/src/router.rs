@@ -128,11 +128,10 @@ impl Router {
         tracing::debug!("Router {} event loop finished", id);
     }
 
-    pub(crate) async fn find_local_track(
+    pub(crate) async fn find_publisher(
         event_sender: mpsc::UnboundedSender<RouterEvent>,
         publisher_id: String,
-        rid: RID,
-    ) -> Result<Arc<LocalTrack>, Error> {
+    ) -> Result<Arc<Mutex<Publisher>>, Error> {
         let (tx, rx) = oneshot::channel();
 
         let _ = event_sender.send(RouterEvent::GetPublisher(publisher_id.clone(), tx));
@@ -145,12 +144,20 @@ impl Router {
                     SubscriberErrorKind::TrackNotFoundError,
                 ))
             }
-            Some(publisher) => {
-                let guard = publisher.lock().await;
-                let local_track = guard.get_local_track(rid.to_string().as_str())?;
-                Ok(local_track)
-            }
+            Some(publisher) => Ok(publisher),
         }
+    }
+
+    pub(crate) async fn find_local_track(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        publisher_id: String,
+        rid: RID,
+    ) -> Result<Arc<LocalTrack>, Error> {
+        let publisher = Self::find_publisher(event_sender, publisher_id).await?;
+
+        let guard = publisher.lock().await;
+        let local_track = guard.get_local_track(rid.to_string().as_str())?;
+        Ok(local_track)
     }
 
     pub fn close(&self) {

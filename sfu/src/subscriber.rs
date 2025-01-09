@@ -29,6 +29,7 @@ pub struct Subscriber {
     pub id: String,
     publisher_id: String,
     closed_sender: broadcast::Sender<bool>,
+    replaced_sender: broadcast::Sender<bool>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     track_local: Arc<TrackLocalStaticRTP>,
     publisher_rtcp_sender: Arc<transport::RtcpSender>,
@@ -37,6 +38,7 @@ pub struct Subscriber {
     timestamp: Arc<AtomicU32>,
     rtp_lock: Arc<Mutex<bool>>,
     rtcp_lock: Arc<Mutex<bool>>,
+    media_ssrc: u32,
 }
 
 impl Subscriber {
@@ -49,22 +51,23 @@ impl Subscriber {
         _mime_type: String,
         media_ssrc: u32,
         router_event_sender: mpsc::UnboundedSender<RouterEvent>,
-    ) -> Self {
+    ) -> (Arc<Mutex<Self>>, mpsc::UnboundedSender<SubscriberEvent>) {
         let id = Uuid::new_v4().to_string();
         let (tx, _rx) = broadcast::channel::<bool>(1);
+        let (replaced_sender, _rx) = broadcast::channel::<bool>(10);
 
         let sequence = Arc::new(AtomicU16::new(0));
         let timestamp = Arc::new(AtomicU32::new(0));
         let rtp_lock = Arc::new(Mutex::new(true));
 
         tokio::spawn(
-            enc!((id, media_ssrc, track_local, rtp_sender, tx, publisher_rtcp_sender, rtp_lock, sequence, timestamp) async move {
+            enc!((id, media_ssrc, track_local, rtp_sender, replaced_sender, publisher_rtcp_sender, rtp_lock, sequence, timestamp) async move {
                 Self::rtp_event_loop(
                     id,
                     media_ssrc,
                     track_local,
                     rtp_sender,
-                    tx,
+                    replaced_sender,
                     publisher_rtcp_sender,
                     rtp_lock,
                     sequence,
@@ -77,10 +80,12 @@ impl Subscriber {
         let rtcp_lock = Arc::new(Mutex::new(true));
 
         tokio::spawn(
-            enc!((rtcp_sender, publisher_rtcp_sender, id, media_ssrc, tx, rtcp_lock) async move {
-                Self::rtcp_event_loop(id, media_ssrc, rtcp_sender, publisher_rtcp_sender, tx, rtcp_lock).await;
+            enc!((rtcp_sender, publisher_rtcp_sender, id, media_ssrc, replaced_sender, rtcp_lock) async move {
+                Self::rtcp_event_loop(id, media_ssrc, rtcp_sender, publisher_rtcp_sender, replaced_sender, rtcp_lock).await;
             }),
         );
+
+        let (event_sender, event_receiver) = mpsc::unbounded_channel::<SubscriberEvent>();
 
         tracing::debug!(
             "Subscriber id={} is created for publisher_ssrc={}",
@@ -88,10 +93,11 @@ impl Subscriber {
             media_ssrc
         );
 
-        Self {
+        let subscriber = Arc::new(Mutex::new(Self {
             publisher_id,
             id,
-            closed_sender: tx,
+            closed_sender: tx.clone(),
+            replaced_sender,
             router_event_sender,
             track_local,
             publisher_rtcp_sender,
@@ -100,16 +106,30 @@ impl Subscriber {
             timestamp,
             rtp_lock,
             rtcp_lock,
-        }
+            media_ssrc,
+        }));
+
+        tokio::spawn(enc!((subscriber, tx) async move {
+            Self::subscriber_event_loop(subscriber, event_receiver, tx).await;
+        }));
+
+        (subscriber, event_sender)
     }
 
-    pub async fn set_preferred_layer(&self, rid: RID) -> Result<(), Error> {
+    pub async fn set_preferred_layer(&mut self, rid: RID) -> Result<(), Error> {
+        tracing::debug!("set_preffered_layer: {}", rid);
         let local_track = Router::find_local_track(
             self.router_event_sender.clone(),
             self.publisher_id.clone(),
             rid,
         )
         .await?;
+
+        if local_track.ssrc == self.media_ssrc {
+            tracing::debug!("preffered layer does not change");
+            return Ok(());
+        }
+        self.media_ssrc = local_track.ssrc;
 
         {
             let id = self.id.clone();
@@ -156,7 +176,7 @@ impl Subscriber {
             });
         }
 
-        let _ = self.closed_sender.send(true);
+        let _ = self.replaced_sender.send(true);
 
         Ok(())
     }
@@ -166,7 +186,7 @@ impl Subscriber {
         media_ssrc: u32,
         track_local: Arc<TrackLocalStaticRTP>,
         rtp_sender: broadcast::Sender<rtp::packet::Packet>,
-        subscriber_closed_sender: broadcast::Sender<bool>,
+        replaced_sender: broadcast::Sender<bool>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
         loop_lock: Arc<Mutex<bool>>,
         init_sequence: Arc<AtomicU16>,
@@ -176,8 +196,8 @@ impl Subscriber {
 
         let mut rtp_receiver = rtp_sender.subscribe();
         drop(rtp_sender);
-        let mut subscriber_closed = subscriber_closed_sender.subscribe();
-        drop(subscriber_closed_sender);
+        let mut track_replaced = replaced_sender.subscribe();
+        drop(replaced_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTP event loop has started",
@@ -190,7 +210,7 @@ impl Subscriber {
 
         loop {
             tokio::select! {
-                _ = subscriber_closed.recv() => {
+                _ = track_replaced.recv() => {
                     break;
                 }
                 res = rtp_receiver.recv() => {
@@ -243,13 +263,13 @@ impl Subscriber {
         media_ssrc: u32,
         rtcp_sender: Arc<RTCRtpSender>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
-        subscriber_closed_sender: broadcast::Sender<bool>,
+        replaced_sender: broadcast::Sender<bool>,
         loop_lock: Arc<Mutex<bool>>,
     ) {
         let mut _guard = loop_lock.lock().await;
 
-        let mut subscriber_closed = subscriber_closed_sender.subscribe();
-        drop(subscriber_closed_sender);
+        let mut track_replaced = replaced_sender.subscribe();
+        drop(replaced_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTCP event loop has started",
@@ -259,7 +279,7 @@ impl Subscriber {
 
         loop {
             tokio::select! {
-                _ = subscriber_closed.recv() => {
+                _ = track_replaced.recv() => {
                     break;
                 }
                 res = rtcp_sender.read_rtcp() => {
@@ -321,8 +341,36 @@ impl Subscriber {
         );
     }
 
+    pub(crate) async fn subscriber_event_loop(
+        subscriber: Arc<Mutex<Subscriber>>,
+        mut event_receiver: mpsc::UnboundedReceiver<SubscriberEvent>,
+        subscriber_closed_sender: broadcast::Sender<bool>,
+    ) {
+        let mut subscriber_closed = subscriber_closed_sender.subscribe();
+        drop(subscriber_closed_sender);
+
+        loop {
+            tokio::select! {
+                _ = subscriber_closed.recv() => {
+                    break;
+                }
+                Some(event) = event_receiver.recv() => {
+                    match event {
+                        SubscriberEvent::SetPrefferedLayer(rid) => {
+                            let mut guard = subscriber.lock().await;
+                            if let Err(err) = guard.set_preferred_layer(rid).await {
+                                tracing::error!("Failed to set preferred layer: {}", err);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn close(&self) {
         self.closed_sender.send(true).unwrap();
+        self.replaced_sender.send(true).unwrap();
     }
 }
 
@@ -330,4 +378,8 @@ impl Drop for Subscriber {
     fn drop(&mut self) {
         tracing::debug!("Subscriber id={} is dropped", self.id);
     }
+}
+
+pub(crate) enum SubscriberEvent {
+    SetPrefferedLayer(RID),
 }
