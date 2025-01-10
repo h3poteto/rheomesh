@@ -91,7 +91,7 @@ struct WebSocket {
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
-    subscribers: Arc<Mutex<HashMap<String, Arc<Subscriber>>>>,
+    subscribers: Arc<Mutex<HashMap<String, Arc<Mutex<Subscriber>>>>>,
 }
 
 impl WebSocket {
@@ -263,9 +263,14 @@ impl Handler<ReceivedMessage> for WebSocket {
                         .await
                         .expect("failed to connect subscribe_transport");
 
-                    let id = subscriber.id.clone();
+                    #[allow(unused)]
+                    let mut id = "".to_owned();
+                    {
+                        let guard = subscriber.lock().await;
+                        id = guard.id.clone();
+                    }
                     let mut s = subscribers.lock().await;
-                    s.insert(subscriber.id.clone(), Arc::new(subscriber));
+                    s.insert(id.clone(), subscriber);
                     address.do_send(SendingMessage::Offer { sdp: offer });
                     address.do_send(SendingMessage::Subscribed { subscriber_id: id })
                 });
@@ -325,6 +330,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     let mut s = subscribers.lock().await;
                     if let Some(subscriber) = s.remove(&subscriber_id) {
+                        let subscriber = subscriber.lock().await;
                         subscriber.close().await;
                     }
                 });
@@ -336,6 +342,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                         actix::spawn(async move {
                             let s = subscribers.lock().await;
                             if let Some(subscriber) = s.get(&subscriber_id) {
+                                let mut subscriber = subscriber.lock().await;
                                 if let Err(err) = subscriber.set_preferred_layer(rid).await {
                                     tracing::error!("Failed to set preferred layer: {}", err);
                                 }
