@@ -97,7 +97,7 @@ impl Subscriber {
             publisher_id,
             id,
             closed_sender: tx.clone(),
-            replaced_sender,
+            replaced_sender: replaced_sender.clone(),
             router_event_sender,
             track_local,
             publisher_rtcp_sender,
@@ -136,7 +136,7 @@ impl Subscriber {
             let ssrc = local_track.ssrc.clone();
             let track_local = self.track_local.clone();
             let rtp_sender = local_track.rtp_packet_sender.clone();
-            let closed_sender = self.closed_sender.clone();
+            let replaced_sender = self.replaced_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
             let rtp_lock = self.rtp_lock.clone();
             let sequence = self.sequence.clone();
@@ -147,7 +147,7 @@ impl Subscriber {
                     ssrc,
                     track_local,
                     rtp_sender,
-                    closed_sender,
+                    replaced_sender,
                     publisher_rtcp_sender,
                     rtp_lock,
                     sequence,
@@ -160,7 +160,7 @@ impl Subscriber {
             let id = self.id.clone();
             let ssrc = local_track.ssrc.clone();
             let rtcp_sender = self.rtcp_sender.clone();
-            let closed_sender = self.closed_sender.clone();
+            let replaced_sender = self.replaced_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
             let loop_lock = self.rtcp_lock.clone();
             tokio::spawn(async move {
@@ -169,14 +169,16 @@ impl Subscriber {
                     ssrc,
                     rtcp_sender,
                     publisher_rtcp_sender,
-                    closed_sender,
+                    replaced_sender,
                     loop_lock,
                 )
                 .await;
             });
         }
 
-        let _ = self.replaced_sender.send(true);
+        if let Err(err) = self.replaced_sender.send(true) {
+            tracing::error!("Failed to send replaced: {}", err);
+        }
 
         Ok(())
     }
@@ -197,7 +199,6 @@ impl Subscriber {
         let mut rtp_receiver = rtp_sender.subscribe();
         drop(rtp_sender);
         let mut track_replaced = replaced_sender.subscribe();
-        drop(replaced_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTP event loop has started",
@@ -269,7 +270,6 @@ impl Subscriber {
         let mut _guard = loop_lock.lock().await;
 
         let mut track_replaced = replaced_sender.subscribe();
-        drop(replaced_sender);
 
         tracing::debug!(
             "Subscriber id={} publisher_ssrc={} RTCP event loop has started",
@@ -369,6 +369,7 @@ impl Subscriber {
     }
 
     pub async fn close(&self) {
+        tracing::debug!("Subscriber id={} is closed", self.id);
         self.closed_sender.send(true).unwrap();
         self.replaced_sender.send(true).unwrap();
     }
