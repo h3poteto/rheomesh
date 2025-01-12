@@ -1,6 +1,6 @@
 {
   "name": "rheomesh",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "WebRTC SFU client-side library for Rheomesh",
   "main": "./lib/index.js",
   "typings": "./lib/index.d.ts",
