@@ -8,7 +8,7 @@ use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
-use rheomesh::config::{MediaConfig, RID};
+use rheomesh::config::{CodecConfig, MediaConfig, RID};
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
@@ -17,9 +17,15 @@ use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use webrtc::api::media_engine::{
+    MIME_TYPE_AV1, MIME_TYPE_G722, MIME_TYPE_H264, MIME_TYPE_HEVC, MIME_TYPE_OPUS, MIME_TYPE_PCMA,
+    MIME_TYPE_PCMU, MIME_TYPE_VP8, MIME_TYPE_VP9,
+};
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters};
+use webrtc::rtp_transceiver::RTCPFeedback;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -67,7 +73,11 @@ async fn socket(
         .await
         .find_by_id(room_id.to_string());
 
-    let config = MediaConfig::default();
+    let mut config = MediaConfig::default();
+    config.codec = CodecConfig {
+        audio: audio_codecs(),
+        video: video_codecs(),
+    };
 
     match find {
         Some(room) => {
@@ -488,4 +498,109 @@ impl Room {
         let users = self.users.lock().unwrap();
         users.iter().filter(|u| u != &user).cloned().collect()
     }
+}
+
+fn audio_codecs() -> Vec<RTCRtpCodecParameters> {
+    return vec![
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_OPUS.to_owned(),
+                clock_rate: 48000,
+                channels: 0,
+                sdp_fmtp_line: "minptime=10;useinbandfec=1".to_owned(),
+                rtcp_feedback: vec![],
+            },
+            payload_type: 111,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_G722.to_owned(),
+                clock_rate: 8000,
+                channels: 2,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: vec![],
+            },
+            payload_type: 9,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_PCMU.to_owned(),
+                clock_rate: 8000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: vec![],
+            },
+            payload_type: 0,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_PCMA.to_owned(),
+                clock_rate: 8000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: vec![],
+            },
+            payload_type: 8,
+            ..Default::default()
+        },
+    ];
+}
+
+fn video_codecs() -> Vec<RTCRtpCodecParameters> {
+    let video_rtcp_feedback = vec![
+        RTCPFeedback {
+            typ: "goog-remb".to_owned(),
+            parameter: "".to_owned(),
+        },
+        RTCPFeedback {
+            typ: "ccm".to_owned(),
+            parameter: "fir".to_owned(),
+        },
+        RTCPFeedback {
+            typ: "nack".to_owned(),
+            parameter: "".to_owned(),
+        },
+        RTCPFeedback {
+            typ: "nack".to_owned(),
+            parameter: "pli".to_owned(),
+        },
+    ];
+    return vec![
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_HEVC.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 126,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_VP9.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "profile-id=0".to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 98,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: MIME_TYPE_VP9.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "profile-id=2".to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 100,
+            ..Default::default()
+        },
+    ];
 }

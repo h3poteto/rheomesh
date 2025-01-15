@@ -18,6 +18,9 @@ const EXT_VIDEO_TIMING: &str = "http://www.webrtc.org/experiments/rtp-hdrext/vid
 const EXT_COLOR_SPACE: &str = "http://www.webrtc.org/experiments/rtp-hdrext/color-space";
 const EXT_VIDEO_LAYERS_ALLOCATION00: &str =
     "http://www.webrtc.org/experiments/rtp-hdrext/video-layers-allocation00";
+const EXT_FRAMEMARKING: &str = "urn:ietf:params:rtp-hdrext:framemarking";
+const EXT_AV1_DEPENDENCY_DESCRIPTOR: &str =
+    "https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension";
 
 /// PortRange for [`WebRTCTransportConfig`]. In server side, random ports within this range are assigned for UDP connections.
 #[derive(Clone, Debug)]
@@ -165,6 +168,8 @@ impl Default for HeaderExtensionConfig {
                 extmap::SDES_RTP_STREAM_ID_URI.to_owned(),
                 extmap::SDES_REPAIR_RTP_STREAM_ID_URI.to_owned(),
                 extmap::ABS_SEND_TIME_URI.to_owned(),
+                EXT_FRAMEMARKING.to_string(),
+                EXT_AV1_DEPENDENCY_DESCRIPTOR.to_string(),
             ],
         }
     }
@@ -180,8 +185,10 @@ fn extmap_order() -> HashMap<u16, String> {
         (6, EXT_VIDEO_CONTENT_TYPE.to_string()),
         (7, EXT_VIDEO_TIMING.to_string()),
         (8, EXT_COLOR_SPACE.to_string()),
+        (9, EXT_FRAMEMARKING.to_string()),
         (10, extmap::SDES_RTP_STREAM_ID_URI.to_owned()),
         (11, extmap::SDES_REPAIR_RTP_STREAM_ID_URI.to_owned()),
+        (12, EXT_AV1_DEPENDENCY_DESCRIPTOR.to_string()),
         (13, extmap::VIDEO_ORIENTATION_URI.to_owned()),
         (14, EXT_TOFFSET.to_string()),
         (15, EXT_VIDEO_LAYERS_ALLOCATION00.to_string()),

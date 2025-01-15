@@ -7,6 +7,7 @@ const EXTMAP_ORDER: { [key: string]: number } = {
   "http://www.webrtc.org/experiments/rtp-hdrext/video-content-type": 6,
   "http://www.webrtc.org/experiments/rtp-hdrext/video-timing": 7,
   "http://www.webrtc.org/experiments/rtp-hdrext/color-space": 8,
+  "urn:ietf:params:rtp-hdrext:framemarking": 9,
   "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id": 10,
   "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id": 11,
   "https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension": 12,
@@ -34,4 +35,12 @@ export function simulcastEncodings(): Array<RTCRtpEncodingParameters> {
     { rid: RID_MID, maxBitrate: 500000, scaleResolutionDownBy: 2.0 },
     { rid: RID_HIGH, maxBitrate: 2500000, scaleResolutionDownBy: 1.0 },
   ];
+}
+
+export interface SVCRTCRtpEncodingParameters extends RTCRtpEncodingParameters {
+  scalabilityMode: string;
+}
+
+export function SVCEncodings(): Array<SVCRTCRtpEncodingParameters> {
+  return [{ scalabilityMode: "L1T3" }];
 }

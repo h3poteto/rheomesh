@@ -5,6 +5,7 @@ import {
   SubscribeTransport,
   simulcastEncodings,
 } from "rheomesh";
+import { SVCEncodings } from "rheomesh/lib/config";
 
 const peerConnectionConfig: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -178,7 +179,7 @@ export default function Room() {
     stream.getTracks().forEach(async (track) => {
       const offer = await publishTransport.current!.publish(
         track,
-        simulcastEncodings(),
+        SVCEncodings(),
       );
       ws.current!.send(
         JSON.stringify({
