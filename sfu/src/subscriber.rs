@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use enclose::enc;
+use rtp::packetizer::Depacketizer;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
@@ -223,6 +224,17 @@ impl Subscriber {
                     }
                     match res {
                         Ok(mut packet) => {
+                            let payload_type = packet.header.payload_type;
+                            // VP9 is 98 or 100.
+                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
+                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
+                            if payload_type == 98 || payload_type == 100 {
+                                let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
+                                if let Ok(_payload) = depacketizer.depacketize(&packet.payload) {
+                                    tracing::debug!("VP9 packet with temporal_id: {:#?}", depacketizer.tid);
+                                }
+                            }
+
                             current_timestamp += packet.header.timestamp;
                             packet.header.timestamp = current_timestamp;
                             last_sequence_number = last_sequence_number.wrapping_add(1);
