@@ -1,5 +1,10 @@
 import { PublishTransport } from "./publishTransport";
 import { SubscribeTransport } from "./subscribeTransport";
-import { simulcastEncodings } from "./config";
+import { simulcastEncodings, SVCEncodings } from "./config";
 
-export { PublishTransport, SubscribeTransport, simulcastEncodings };
+export {
+  PublishTransport,
+  SubscribeTransport,
+  simulcastEncodings,
+  SVCEncodings,
+};

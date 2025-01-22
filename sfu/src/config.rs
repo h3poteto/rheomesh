@@ -209,3 +209,24 @@ pub enum RID {
     MID,
     HIGH,
 }
+
+impl From<RID> for u8 {
+    fn from(value: RID) -> Self {
+        match value {
+            RID::LOW => 0,
+            RID::MID => 1,
+            RID::HIGH => 2,
+        }
+    }
+}
+
+impl From<u8> for RID {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => RID::LOW,
+            1 => RID::MID,
+            2 => RID::HIGH,
+            _ => RID::HIGH,
+        }
+    }
+}

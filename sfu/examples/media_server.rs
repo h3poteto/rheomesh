@@ -342,24 +342,21 @@ impl Handler<ReceivedMessage> for WebSocket {
                     }
                 });
             }
-            ReceivedMessage::SetPreferredLayer { subscriber_id, rid } => {
-                match RID::from_str(rid.as_str()) {
-                    Ok(rid) => {
-                        let subscribers = self.subscribers.clone();
-                        actix::spawn(async move {
-                            let s = subscribers.lock().await;
-                            if let Some(subscriber) = s.get(&subscriber_id) {
-                                let mut subscriber = subscriber.lock().await;
-                                if let Err(err) = subscriber.set_preferred_layer(rid).await {
-                                    tracing::error!("Failed to set preferred layer: {}", err);
-                                }
-                            }
-                        });
+            ReceivedMessage::SetPreferredLayer {
+                subscriber_id,
+                sid,
+                tid,
+            } => {
+                let subscribers = self.subscribers.clone();
+                actix::spawn(async move {
+                    let s = subscribers.lock().await;
+                    if let Some(subscriber) = s.get(&subscriber_id) {
+                        let mut subscriber = subscriber.lock().await;
+                        if let Err(err) = subscriber.set_preferred_layer(sid, tid).await {
+                            tracing::error!("Failed to set preferred layer: {}", err);
+                        }
                     }
-                    Err(err) => {
-                        tracing::error!("Failed to parse RID: {}", err);
-                    }
-                }
+                });
             }
         }
     }
@@ -410,7 +407,11 @@ enum ReceivedMessage {
     #[serde(rename_all = "camelCase")]
     StopSubscribe { subscriber_id: String },
     #[serde(rename_all = "camelCase")]
-    SetPreferredLayer { subscriber_id: String, rid: String },
+    SetPreferredLayer {
+        subscriber_id: String,
+        sid: u8,
+        tid: Option<u8>,
+    },
 }
 
 #[derive(Serialize, Message, Debug)]

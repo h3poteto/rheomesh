@@ -124,7 +124,9 @@ impl Publisher {
     pub(crate) fn set_publisher_type(&mut self, publisher_type: PublisherType) {
         self.publisher_type = publisher_type;
         for sender in self.subscriber_event_sender.iter() {
-            if let Err(err) = sender.send(SubscriberEvent::SetPrefferedLayer(RID::HIGH)) {
+            if let Err(err) =
+                sender.send(SubscriberEvent::SetPrefferedLayer(RID::HIGH.into(), None))
+            {
                 tracing::error!("Failed to send subscriber event: {}", err);
             }
         }
