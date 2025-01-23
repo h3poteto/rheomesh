@@ -24,6 +24,8 @@ export default function Room() {
   const [localVideo, setLocalVideo] = useState<MediaStream>();
   const [localAudio, setLocalAudio] = useState<MediaStream>();
   const [subscriberIds, setSubscriberIds] = useState<Array<string>>([]);
+  const [sid, setSid] = useState<number>(2);
+  const [tid, setTid] = useState<number>(2);
 
   const ws = useRef<WebSocket | null>(null);
   const sendingVideoRef = useRef<HTMLVideoElement>(null);
@@ -226,16 +228,27 @@ export default function Room() {
     setConnected(false);
   };
 
-  const setPrefferedLayer = (rid: string) => {
+  const setPrefferedLayer = (sid: number, tid: number) => {
     subscriberIds.forEach((id) => {
       ws.current!.send(
         JSON.stringify({
           action: "SetPreferredLayer",
           subscriberId: id,
-          rid: rid,
+          sid: sid,
+          tid: tid,
         }),
       );
     });
+  };
+
+  const updateSid = (sid: number) => {
+    setSid(sid);
+    setPrefferedLayer(sid, tid);
+  };
+
+  const updateTid = (tid: number) => {
+    setTid(tid);
+    setPrefferedLayer(sid, tid);
   };
 
   return (
@@ -254,10 +267,15 @@ export default function Room() {
         <button onClick={mic} disabled={localAudio !== undefined || !connected}>
           Mic
         </button>
-        <select onChange={(e) => setPrefferedLayer(e.target.value)}>
-          <option value="high">High</option>
-          <option value="mid">Middle</option>
-          <option value="low">Low</option>
+        <select onChange={(e) => updateSid(parseInt(e.target.value))}>
+          <option value="2">High</option>
+          <option value="1">Middle</option>
+          <option value="0">Low</option>
+        </select>
+        <select onChange={(e) => updateTid(parseInt(e.target.value))}>
+          <option value="2">2</option>
+          <option value="1">1</option>
+          <option value="0">0</option>
         </select>
         <button onClick={stop} disabled={!connected}>
           Stop

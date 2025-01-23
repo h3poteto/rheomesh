@@ -242,6 +242,7 @@ impl PublishTransport {
                     let id = track.id();
                     let ssrc = track.ssrc();
                     tracing::info!("Track published: track_id={}, ssrc={}, rid={}", id, ssrc, track.rid());
+                    tracing::debug!("codec: {:#?}", track.codec());
 
                     {
                         let publishers_clone = publishers.clone();

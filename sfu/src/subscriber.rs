@@ -1,9 +1,10 @@
 use std::sync::{
-    atomic::{AtomicU16, AtomicU32, Ordering},
+    atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering},
     Arc,
 };
 
 use enclose::enc;
+use rtp::packetizer::Depacketizer;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
@@ -20,6 +21,7 @@ use webrtc::{
 use crate::{
     config::RID,
     error::Error,
+    publisher::PublisherType,
     router::{Router, RouterEvent},
     transport,
 };
@@ -40,6 +42,8 @@ pub struct Subscriber {
     rtp_lock: Arc<Mutex<bool>>,
     rtcp_lock: Arc<Mutex<bool>>,
     media_ssrc: u32,
+    spatial_layer: Arc<AtomicU8>,
+    temporal_layer: Arc<AtomicU8>,
 }
 
 impl Subscriber {
@@ -61,8 +65,11 @@ impl Subscriber {
         let timestamp = Arc::new(AtomicU32::new(0));
         let rtp_lock = Arc::new(Mutex::new(true));
 
+        let spatial_layer = Arc::new(AtomicU8::new(2));
+        let temporal_layer = Arc::new(AtomicU8::new(2));
+
         tokio::spawn(
-            enc!((id, media_ssrc, track_local, rtp_sender, replaced_sender, publisher_rtcp_sender, rtp_lock, sequence, timestamp) async move {
+            enc!((id, media_ssrc, track_local, rtp_sender, replaced_sender, publisher_rtcp_sender, rtp_lock, sequence, timestamp, spatial_layer, temporal_layer) async move {
                 Self::rtp_event_loop(
                     id,
                     media_ssrc,
@@ -72,7 +79,9 @@ impl Subscriber {
                     publisher_rtcp_sender,
                     rtp_lock,
                     sequence,
-                    timestamp
+                    timestamp,
+                    spatial_layer,
+                    temporal_layer,
                 )
                 .await;
             }),
@@ -108,6 +117,8 @@ impl Subscriber {
             rtp_lock,
             rtcp_lock,
             media_ssrc,
+            spatial_layer,
+            temporal_layer,
         }));
 
         tokio::spawn(enc!((id, subscriber, tx) async move {
@@ -117,8 +128,43 @@ impl Subscriber {
         (subscriber, event_sender)
     }
 
-    pub async fn set_preferred_layer(&mut self, rid: RID) -> Result<(), Error> {
-        tracing::debug!("set_preffered_layer: {}", rid);
+    pub async fn set_preferred_layer(
+        &mut self,
+        spatial_layer: u8,
+        temporal_layer: Option<u8>,
+    ) -> Result<(), Error> {
+        tracing::debug!(
+            "set_preferred_layer, sid={:#?}, tid={:#?}",
+            spatial_layer,
+            temporal_layer
+        );
+        #[allow(unused)]
+        let mut publisher_type = PublisherType::Simple;
+        {
+            let publisher =
+                Router::find_publisher(self.router_event_sender.clone(), self.publisher_id.clone())
+                    .await?;
+
+            let guard = publisher.lock().await;
+            publisher_type = guard.publisher_type.clone();
+        }
+        if publisher_type == PublisherType::Simulcast {
+            self.change_rid(spatial_layer.into()).await?;
+        } else {
+            let sid = self.spatial_layer.clone();
+            sid.store(spatial_layer, Ordering::Relaxed);
+
+            if let Some(temporal_layer) = temporal_layer {
+                let tid = self.temporal_layer.clone();
+                tid.store(temporal_layer, Ordering::Relaxed);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn change_rid(&mut self, rid: RID) -> Result<(), Error> {
+        tracing::debug!("change_rid: {}", rid);
         let local_track = Router::find_local_track(
             self.router_event_sender.clone(),
             self.publisher_id.clone(),
@@ -127,7 +173,7 @@ impl Subscriber {
         .await?;
 
         if local_track.ssrc == self.media_ssrc {
-            tracing::debug!("preffered layer does not change");
+            tracing::debug!("rid does not change");
             return Ok(());
         }
         self.media_ssrc = local_track.ssrc;
@@ -142,6 +188,8 @@ impl Subscriber {
             let rtp_lock = self.rtp_lock.clone();
             let sequence = self.sequence.clone();
             let timestamp = self.timestamp.clone();
+            let spatial_layer = self.spatial_layer.clone();
+            let temporal_layer = self.temporal_layer.clone();
             tokio::spawn(async move {
                 Self::rtp_event_loop(
                     id,
@@ -153,6 +201,8 @@ impl Subscriber {
                     rtp_lock,
                     sequence,
                     timestamp,
+                    spatial_layer,
+                    temporal_layer,
                 )
                 .await;
             });
@@ -196,6 +246,8 @@ impl Subscriber {
         loop_lock: Arc<Mutex<bool>>,
         init_sequence: Arc<AtomicU16>,
         init_timestamp: Arc<AtomicU32>,
+        spatial_layer: Arc<AtomicU8>,
+        temporal_layer: Arc<AtomicU8>,
     ) {
         let mut _gurad = loop_lock.lock().await;
 
@@ -223,6 +275,24 @@ impl Subscriber {
                     }
                     match res {
                         Ok(mut packet) => {
+                            let payload_type = packet.header.payload_type;
+                            // VP9 is 98 or 100.
+                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
+                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
+                            if payload_type == 98 || payload_type == 100 {
+                                let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
+                                if let Ok(_payload) = depacketizer.depacketize(&packet.payload) {
+                                    let tid = temporal_layer.load(Ordering::Relaxed);
+                                    if depacketizer.tid > tid {
+                                        continue
+                                    }
+                                    let sid = spatial_layer.load(Ordering::Relaxed);
+                                    if depacketizer.sid > sid {
+                                        continue
+                                    }
+                                }
+                            }
+
                             current_timestamp += packet.header.timestamp;
                             packet.header.timestamp = current_timestamp;
                             last_sequence_number = last_sequence_number.wrapping_add(1);
@@ -366,9 +436,9 @@ impl Subscriber {
                 }
                 Some(event) = event_receiver.recv() => {
                     match event {
-                        SubscriberEvent::SetPrefferedLayer(rid) => {
+                        SubscriberEvent::SetPrefferedLayer(sid, tid) => {
                             let mut guard = subscriber.lock().await;
-                            if let Err(err) = guard.set_preferred_layer(rid).await {
+                            if let Err(err) = guard.set_preferred_layer(sid, tid).await {
                                 tracing::error!("Failed to set preferred layer: {}", err);
                             }
                         }
@@ -400,6 +470,6 @@ impl Drop for Subscriber {
 }
 
 pub(crate) enum SubscriberEvent {
-    SetPrefferedLayer(RID),
+    SetPrefferedLayer(u8, Option<u8>),
     Close,
 }
