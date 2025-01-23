@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use actix::{Actor, Addr, Message, StreamHandler};
@@ -8,7 +7,7 @@ use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
-use rheomesh::config::{CodecConfig, MediaConfig, RID};
+use rheomesh::config::{CodecConfig, MediaConfig};
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
@@ -567,17 +566,17 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
         },
     ];
     return vec![
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line: "".to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 96,
-        //     ..Default::default()
-        // },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 96,
+            ..Default::default()
+        },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
                 mime_type: media_engine::MIME_TYPE_VP9.to_owned(),

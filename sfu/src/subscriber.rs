@@ -138,12 +138,17 @@ impl Subscriber {
             spatial_layer,
             temporal_layer
         );
-        let publisher =
-            Router::find_publisher(self.router_event_sender.clone(), self.publisher_id.clone())
-                .await?;
+        #[allow(unused)]
+        let mut publisher_type = PublisherType::Simple;
+        {
+            let publisher =
+                Router::find_publisher(self.router_event_sender.clone(), self.publisher_id.clone())
+                    .await?;
 
-        let guard = publisher.lock().await;
-        if guard.publisher_type == PublisherType::Simulcast {
+            let guard = publisher.lock().await;
+            publisher_type = guard.publisher_type.clone();
+        }
+        if publisher_type == PublisherType::Simulcast {
             self.change_rid(spatial_layer.into()).await?;
         } else {
             let sid = self.spatial_layer.clone();

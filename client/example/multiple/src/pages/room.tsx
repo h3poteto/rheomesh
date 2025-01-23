@@ -1,6 +1,10 @@
 import { useRouter } from "next/router";
 import { useEffect, useRef, useState } from "react";
-import { PublishTransport, SubscribeTransport, SVCEncodings } from "rheomesh";
+import {
+  PublishTransport,
+  SubscribeTransport,
+  simulcastEncodings,
+} from "rheomesh";
 
 const peerConnectionConfig: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -176,7 +180,7 @@ export default function Room() {
     stream.getTracks().forEach(async (track) => {
       const offer = await publishTransport.current!.publish(
         track,
-        SVCEncodings(),
+        simulcastEncodings(),
       );
       ws.current!.send(
         JSON.stringify({

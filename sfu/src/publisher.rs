@@ -185,7 +185,7 @@ impl Drop for Publisher {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PublisherType {
     Simple,
     Simulcast,
