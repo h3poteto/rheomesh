@@ -241,7 +241,7 @@ impl Subscriber {
         loop_lock: Arc<Mutex<bool>>,
         init_sequence: Arc<AtomicU16>,
         init_timestamp: Arc<AtomicU32>,
-        _spatial_layer: Arc<AtomicU8>,
+        spatial_layer: Arc<AtomicU8>,
         temporal_layer: Arc<AtomicU8>,
     ) {
         let mut _gurad = loop_lock.lock().await;
@@ -279,6 +279,10 @@ impl Subscriber {
                                 if let Ok(_payload) = depacketizer.depacketize(&packet.payload) {
                                     let tid = temporal_layer.load(Ordering::Relaxed);
                                     if depacketizer.tid > tid {
+                                        continue
+                                    }
+                                    let sid = spatial_layer.load(Ordering::Relaxed);
+                                    if depacketizer.sid > sid {
                                         continue
                                     }
                                 }
