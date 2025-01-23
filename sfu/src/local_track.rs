@@ -107,6 +107,8 @@ impl LocalTrack {
                             let old_timestamp = rtp.header.timestamp;
                             if last_timestamp == 0 {
                                 rtp.header.timestamp = 0
+                            } else if rtp.header.timestamp < last_timestamp {
+                                rtp.header.timestamp = 0
                             } else {
                                 rtp.header.timestamp -= last_timestamp;
                             }
