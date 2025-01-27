@@ -42,5 +42,5 @@ export interface SVCRTCRtpEncodingParameters extends RTCRtpEncodingParameters {
 }
 
 export function SVCEncodings(): Array<SVCRTCRtpEncodingParameters> {
-  return [{ scalabilityMode: "L1T3" }];
+  return [{ scalabilityMode: "L2T3_KEY" }];
 }

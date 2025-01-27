@@ -4,7 +4,8 @@
     "rheomesh",
     "example/media",
     "example/data",
-    "example/multiple"
+    "example/multiple",
+    "example/camera"
   ],
   "engines": {
     "npm": "use yarn instead"
