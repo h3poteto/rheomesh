@@ -29,8 +29,8 @@ export default function Room() {
 
   const ws = useRef<WebSocket | null>(null);
   const sendingVideoRef = useRef<HTMLVideoElement>(null);
-  const publishTransport = useRef<PublishTransport>();
-  const subscribeTransport = useRef<SubscribeTransport>();
+  const publishTransport = useRef<PublishTransport>(null);
+  const subscribeTransport = useRef<SubscribeTransport>(null);
 
   useEffect(() => {
     if (router.query.room) {
@@ -220,9 +220,9 @@ export default function Room() {
     });
     setSubscriberIds([]);
     publishTransport.current?.close();
-    publishTransport.current = undefined;
+    publishTransport.current = null;
     subscribeTransport.current?.close();
-    subscribeTransport.current = undefined;
+    subscribeTransport.current = null;
     ws.current?.close();
     ws.current = null;
     setConnected(false);
