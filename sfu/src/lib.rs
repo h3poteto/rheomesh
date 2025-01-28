@@ -13,6 +13,7 @@ pub mod config;
 pub mod data_publisher;
 /// DataChannel methods for subscriber.
 pub mod data_subscriber;
+pub mod dependency_descriptor;
 pub mod error;
 /// Track related methods for a published track.
 pub mod local_track;

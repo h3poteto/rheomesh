@@ -20,6 +20,7 @@ use webrtc::{
 
 use crate::{
     config::RID,
+    dependency_descriptor::DependencyDescriptorParser,
     error::Error,
     publisher::PublisherType,
     router::{Router, RouterEvent},
@@ -264,6 +265,8 @@ impl Subscriber {
         let mut current_timestamp = init_timestamp.load(Ordering::Relaxed);
         let mut last_sequence_number: u16 = init_sequence.load(Ordering::Relaxed);
 
+        let mut av1_parser = DependencyDescriptorParser::new();
+
         loop {
             tokio::select! {
                 _ = track_replaced.recv() => {
@@ -289,6 +292,24 @@ impl Subscriber {
                                     let sid = spatial_layer.load(Ordering::Relaxed);
                                     if depacketizer.sid > sid {
                                         continue
+                                    }
+                                }
+                            } else if payload_type == 41 || payload_type == 45 {
+                                // AV1 is 41
+                                // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L294
+                                // But, sometimes we receive AV1 with payload_type: 45
+                                for ext in packet.header.extensions.iter() {
+                                    if ext.id == 12 {
+                                        if let Some(dd) = av1_parser.parse(&ext.payload) {
+                                            let tid = temporal_layer.load(Ordering::Relaxed);
+                                            if dd.temporal_id > tid {
+                                                continue
+                                            }
+                                            let sid = spatial_layer.load(Ordering::Relaxed);
+                                            if dd.spatial_id > sid {
+                                                continue
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -14,6 +14,8 @@ pub enum Error {
     SubscriberError(#[from] SubscriberError),
     #[error(transparent)]
     PublisherError(#[from] PublisherError),
+    #[error(transparent)]
+    RtpParseError(#[from] RtpParseError),
 }
 
 #[derive(thiserror::Error)]
@@ -34,6 +36,13 @@ pub struct SubscriberError {
 #[error("{kind}: {message}")]
 pub struct PublisherError {
     pub kind: PublisherErrorKind,
+    pub message: String,
+}
+
+#[derive(thiserror::Error)]
+#[error("{kind}: {message}")]
+pub struct RtpParseError {
+    pub kind: RtpParseErrorKind,
     pub message: String,
 }
 
@@ -69,6 +78,12 @@ pub enum PublisherErrorKind {
     TrackNotFoundError,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RtpParseErrorKind {
+    #[error("AV1 dependency descriptor error")]
+    AV1DependencyDescriptorError,
+}
+
 impl Error {
     pub fn new_transport(message: String, kind: TransportErrorKind) -> Error {
         Error::TransportError(TransportError { kind, message })
@@ -80,6 +95,10 @@ impl Error {
 
     pub fn new_publisher(message: String, kind: PublisherErrorKind) -> Error {
         Error::PublisherError(PublisherError { kind, message })
+    }
+
+    pub fn new_rtp(message: String, kind: RtpParseErrorKind) -> Error {
+        Error::RtpParseError(RtpParseError { kind, message })
     }
 }
 
@@ -108,6 +127,17 @@ impl fmt::Debug for SubscriberError {
 impl fmt::Debug for PublisherError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut builder = f.debug_struct("rheomesh::PublisherError");
+
+        builder.field("kind", &self.kind);
+        builder.field("message", &self.message);
+
+        builder.finish()
+    }
+}
+
+impl fmt::Debug for RtpParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut builder = f.debug_struct("rheomesh::RtpParseError");
 
         builder.field("kind", &self.kind);
         builder.field("message", &self.message);
