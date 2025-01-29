@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use enclose::enc;
+use rtp::packetizer::Depacketizer;
 use tokio::sync::{broadcast, mpsc};
 use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp::{self};
@@ -11,6 +12,8 @@ use webrtc::{
 };
 
 use crate::publisher::PublisherEvent;
+use crate::rtp::dependency_descriptor::DependencyDescriptorParser;
+use crate::rtp::layer::Layer;
 use crate::transport;
 
 #[derive(Debug)]
@@ -24,7 +27,7 @@ pub struct LocalTrack {
     _rtp_transceiver: Arc<RTCRtpTransceiver>,
     pub(crate) rtcp_sender: Arc<transport::RtcpSender>,
     closed_sender: broadcast::Sender<bool>,
-    pub(crate) rtp_packet_sender: broadcast::Sender<rtp::packet::Packet>,
+    pub(crate) rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
 }
 
 impl LocalTrack {
@@ -39,7 +42,7 @@ impl LocalTrack {
         let ssrc = track.ssrc();
         let rid = track.rid().to_string();
 
-        let (sender, _reader) = broadcast::channel::<rtp::packet::Packet>(1024);
+        let (sender, _reader) = broadcast::channel::<(rtp::packet::Packet, Layer)>(1024);
         let (tx, _rx) = broadcast::channel::<bool>(10);
 
         {
@@ -80,7 +83,7 @@ impl LocalTrack {
     async fn rtp_event_loop(
         track_id: String,
         ssrc: u32,
-        rtp_sender: broadcast::Sender<rtp::packet::Packet>,
+        rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
         track: Arc<TrackRemote>,
         closed_sender: broadcast::Sender<bool>,
     ) {
@@ -95,6 +98,7 @@ impl LocalTrack {
         drop(closed_sender);
 
         let mut last_timestamp = 0;
+        let mut av1_parser = DependencyDescriptorParser::new();
 
         loop {
             tokio::select! {
@@ -104,6 +108,31 @@ impl LocalTrack {
                 res = track.read_rtp() => {
                     match res {
                         Ok((mut rtp, _attr)) => {
+                            let mut layer = Layer::new();
+                            let payload_type = rtp.header.payload_type;
+                            // VP9 is 98 or 100.
+                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
+                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
+                            if payload_type == 98 || payload_type == 100 {
+                                let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
+                                if let Ok(_payload) = depacketizer.depacketize(&rtp.payload) {
+                                    layer.temporal_id = depacketizer.tid;
+                                    layer.spatial_id = depacketizer.sid;
+                                }
+                            } else if payload_type == 41 || payload_type == 45 {
+                                // AV1 is 41
+                                // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L294
+                                // But, sometimes we receive AV1 with payload_type: 45
+                                for ext in rtp.header.extensions.iter() {
+                                    if ext.id == 12 {
+                                        if let Some(dd) = av1_parser.parse(&ext.payload) {
+                                            layer.temporal_id = dd.temporal_id;
+                                            layer.spatial_id = dd.spatial_id;
+                                        }
+                                    }
+                                }
+                            }
+
                             let old_timestamp = rtp.header.timestamp;
                             if last_timestamp == 0 {
                                 rtp.header.timestamp = 0
@@ -123,7 +152,7 @@ impl LocalTrack {
                             );
 
                             if rtp_sender.receiver_count() > 0 {
-                                if let Err(err) = rtp_sender.send(rtp) {
+                                if let Err(err) = rtp_sender.send((rtp, layer)) {
                                     tracing::error!("LocalTrack id={} ssrc={} failed to send rtp: {}", track_id, ssrc, err);
                                 }
                             }

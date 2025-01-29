@@ -566,17 +566,17 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
         },
     ];
     return vec![
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line: "".to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 96,
-        //     ..Default::default()
-        // },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 96,
+            ..Default::default()
+        },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
                 mime_type: media_engine::MIME_TYPE_VP9.to_owned(),

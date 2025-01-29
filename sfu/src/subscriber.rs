@@ -4,7 +4,6 @@ use std::sync::{
 };
 
 use enclose::enc;
-use rtp::packetizer::Depacketizer;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
@@ -20,10 +19,10 @@ use webrtc::{
 
 use crate::{
     config::RID,
-    dependency_descriptor::DependencyDescriptorParser,
     error::Error,
     publisher::PublisherType,
     router::{Router, RouterEvent},
+    rtp::layer::Layer,
     transport,
 };
 
@@ -51,7 +50,7 @@ impl Subscriber {
     pub(crate) fn new(
         publisher_id: String,
         track_local: Arc<TrackLocalStaticRTP>,
-        rtp_sender: broadcast::Sender<rtp::packet::Packet>,
+        rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
         rtcp_sender: Arc<RTCRtpSender>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
         _mime_type: String,
@@ -241,7 +240,7 @@ impl Subscriber {
         id: String,
         media_ssrc: u32,
         track_local: Arc<TrackLocalStaticRTP>,
-        rtp_sender: broadcast::Sender<rtp::packet::Packet>,
+        rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
         replaced_sender: broadcast::Sender<bool>,
         publisher_rtcp_sender: Arc<transport::RtcpSender>,
         loop_lock: Arc<Mutex<bool>>,
@@ -265,8 +264,6 @@ impl Subscriber {
         let mut current_timestamp = init_timestamp.load(Ordering::Relaxed);
         let mut last_sequence_number: u16 = init_sequence.load(Ordering::Relaxed);
 
-        let mut av1_parser = DependencyDescriptorParser::new();
-
         loop {
             tokio::select! {
                 _ = track_replaced.recv() => {
@@ -277,41 +274,14 @@ impl Subscriber {
                         break;
                     }
                     match res {
-                        Ok(mut packet) => {
-                            let payload_type = packet.header.payload_type;
-                            // VP9 is 98 or 100.
-                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
-                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
-                            if payload_type == 98 || payload_type == 100 {
-                                let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
-                                if let Ok(_payload) = depacketizer.depacketize(&packet.payload) {
-                                    let tid = temporal_layer.load(Ordering::Relaxed);
-                                    if depacketizer.tid > tid {
-                                        continue
-                                    }
-                                    let sid = spatial_layer.load(Ordering::Relaxed);
-                                    if depacketizer.sid > sid {
-                                        continue
-                                    }
-                                }
-                            } else if payload_type == 41 || payload_type == 45 {
-                                // AV1 is 41
-                                // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L294
-                                // But, sometimes we receive AV1 with payload_type: 45
-                                for ext in packet.header.extensions.iter() {
-                                    if ext.id == 12 {
-                                        if let Some(dd) = av1_parser.parse(&ext.payload) {
-                                            let tid = temporal_layer.load(Ordering::Relaxed);
-                                            if dd.temporal_id > tid {
-                                                continue
-                                            }
-                                            let sid = spatial_layer.load(Ordering::Relaxed);
-                                            if dd.spatial_id > sid {
-                                                continue
-                                            }
-                                        }
-                                    }
-                                }
+                        Ok((mut packet, layer)) => {
+                            let tid = temporal_layer.load(Ordering::Relaxed);
+                            if layer.temporal_id > tid {
+                                continue
+                            }
+                            let sid = spatial_layer.load(Ordering::Relaxed);
+                            if layer.spatial_id > sid {
+                                continue
                             }
 
                             current_timestamp += packet.header.timestamp;
