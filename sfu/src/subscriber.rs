@@ -246,7 +246,7 @@ impl Subscriber {
         loop_lock: Arc<Mutex<bool>>,
         init_sequence: Arc<AtomicU16>,
         init_timestamp: Arc<AtomicU32>,
-        spatial_layer: Arc<AtomicU8>,
+        _spatial_layer: Arc<AtomicU8>,
         temporal_layer: Arc<AtomicU8>,
     ) {
         let mut _gurad = loop_lock.lock().await;
@@ -279,10 +279,12 @@ impl Subscriber {
                             if layer.temporal_id > tid {
                                 continue
                             }
-                            let sid = spatial_layer.load(Ordering::Relaxed);
-                            if layer.spatial_id > sid {
-                                continue
-                            }
+                            // When you specify sid = 0, it is not working. You can't decode video.
+                            // We need to investigate, but for now, I disabled this feature.
+                            // let sid = spatial_layer.load(Ordering::Relaxed);
+                            // if layer.spatial_id > sid {
+                            //     continue
+                            // }
 
                             current_timestamp += packet.header.timestamp;
                             packet.header.timestamp = current_timestamp;
