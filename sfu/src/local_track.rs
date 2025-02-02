@@ -110,27 +110,43 @@ impl LocalTrack {
                         Ok((mut rtp, _attr)) => {
                             let mut layer = Layer::new();
                             let payload_type = rtp.header.payload_type;
-                            // VP9 is 98 or 100.
-                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
-                            // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
-                            if payload_type == 98 || payload_type == 100 {
-                                let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
-                                if let Ok(_payload) = depacketizer.depacketize(&rtp.payload) {
-                                    layer.temporal_id = depacketizer.tid;
-                                    layer.spatial_id = depacketizer.sid;
+                            match payload_type {
+                                96 => {
+                                    // VP8 is 96.
+                                    // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L183
+                                    let mut depacketizer = rtp::codecs::vp8::Vp8Packet::default();
+                                    if let Ok(_payload) = depacketizer.depacketize(&rtp.payload) {
+                                        layer.temporal_id = depacketizer.tid;
+                                    }
                                 }
-                            } else if payload_type == 41 || payload_type == 45 {
-                                // AV1 is 41
-                                // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L294
-                                // But, sometimes we receive AV1 with payload_type: 45
-                                for ext in rtp.header.extensions.iter() {
-                                    if ext.id == 12 {
-                                        if let Some(dd) = av1_parser.parse(&ext.payload) {
-                                            layer.temporal_id = dd.temporal_id;
-                                            layer.spatial_id = dd.spatial_id;
+                                98 | 100 => {
+                                    // VP9 is 98 or 100.
+                                    // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
+                                    // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
+                                    let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
+                                    if let Ok(_payload) = depacketizer.depacketize(&rtp.payload) {
+                                        layer.temporal_id = depacketizer.tid;
+                                        layer.spatial_id = depacketizer.sid;
+                                    }
+                                }
+                                41 | 45 | 102  | 125 | 108 | 127 | 123 => {
+                                    // AV1 is 41
+                                    // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L294
+                                    // But, sometimes we receive AV1 with payload_type: 45
+
+                                    // H.264 doesn't have tid in the packet header.
+                                    // https://docs.rs/rtp/0.12.0/rtp/codecs/h264/struct.H264Packet.html
+                                    // Instead, H.264 has the same dependency descriptor header.
+                                    for ext in rtp.header.extensions.iter() {
+                                        if ext.id == 12 {
+                                            if let Some(dd) = av1_parser.parse(&ext.payload) {
+                                                layer.temporal_id = dd.temporal_id;
+                                                layer.spatial_id = dd.spatial_id;
+                                            }
                                         }
                                     }
                                 }
+                                _ => {}
                             }
 
                             let old_timestamp = rtp.header.timestamp;
