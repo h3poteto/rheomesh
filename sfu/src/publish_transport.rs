@@ -3,6 +3,7 @@ use crate::{
     data_publisher::DataPublisher,
     error::{Error, PublisherErrorKind, TransportErrorKind},
     publisher::{Publisher, PublisherType},
+    relay::sender::RelaySender,
     router::RouterEvent,
     transport::{OnIceCandidateFn, OnTrackFn, PeerConnection, RtcpReceiver, RtcpSender, Transport},
 };
@@ -52,6 +53,7 @@ pub struct PublishTransport {
     on_track_fn: Arc<Mutex<OnTrackFn>>,
     signaling_pending: Arc<AtomicBool>,
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
+    relay_sender: Arc<RelaySender>,
 }
 
 impl PublishTransport {
@@ -59,6 +61,7 @@ impl PublishTransport {
         router_event_sender: mpsc::UnboundedSender<RouterEvent>,
         media_config: MediaConfig,
         transport_config: WebRTCTransportConfig,
+        relay_sender: Arc<RelaySender>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
         let (s, r) = mpsc::unbounded_channel();
@@ -87,6 +90,7 @@ impl PublishTransport {
             on_track_fn: Arc::new(Mutex::new(Box::new(|_, _, _| {}))),
             signaling_pending: Arc::new(AtomicBool::new(false)),
             publishers: Arc::new(Mutex::new(HashMap::new())),
+            relay_sender,
         };
 
         transport.rtcp_writer_loop();
@@ -234,11 +238,12 @@ impl PublishTransport {
         let rtcp_sender = self.rtcp_sender_channel.clone();
         let published_sender = self.published_sender.clone();
         let publishers = self.publishers.clone();
-        peer.on_track(Box::new(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers)
+        let relay_sender = self.relay_sender.clone();
+        peer.on_track(Box::new(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender)
             move |track: Arc<TrackRemote>,
                   receiver: Arc<RTCRtpReceiver>,
                   transceiver: Arc<RTCRtpTransceiver>| {
-                Box::pin(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers) async move {
+                Box::pin(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender) async move {
                     let id = track.id();
                     let ssrc = track.ssrc();
                     tracing::info!("Track published: track_id={}, ssrc={}, rid={}", id, ssrc, track.rid());
@@ -252,7 +257,7 @@ impl PublishTransport {
                             publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
                             publisher.set_publisher_type(PublisherType::Simulcast);
                         } else {
-                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple, Box::new(move |closed_id| {
+                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple, relay_sender, Box::new(move |closed_id| {
                                 let publishers_clone = publishers_clone.clone();
                                 tokio::spawn(async move {
                                     let mut guard = publishers_clone.lock().await;
@@ -266,7 +271,7 @@ impl PublishTransport {
 
                             publishers.insert(id.clone(), publisher.clone());
                             published_sender.send(publisher.clone()).expect("could not send published track id to publisher");
-                            let _ = router_sender.send(RouterEvent::MediaPublished(id, publisher));
+                            router_sender.send(RouterEvent::MediaPublished(id, publisher)).expect("could not send router event");
                         }
                     }
 

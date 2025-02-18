@@ -1,13 +1,17 @@
-use std::fmt;
+use std::{fmt, io};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
     WebRTCError(#[from] webrtc::Error),
     #[error(transparent)]
+    WebRTCUtilError(#[from] webrtc::util::Error),
+    #[error(transparent)]
     SdpParseError(#[from] webrtc_sdp::error::SdpParserError),
     #[error(transparent)]
     SdpInternalError(#[from] webrtc_sdp::error::SdpParserInternalError),
+    #[error(transparent)]
+    IOError(#[from] io::Error),
     #[error(transparent)]
     TransportError(#[from] TransportError),
     #[error(transparent)]

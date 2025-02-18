@@ -33,7 +33,14 @@ async fn main() -> std::io::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let room_owner = RoomOwner::new();
+    let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig {
+        relay_sender_port: 9441,
+        relay_server_udp_port: 9442,
+        relay_server_tcp_port: 9443,
+    })
+    .await
+    .unwrap();
+    let room_owner = RoomOwner::new(worker);
     let room_data = Data::new(Mutex::new(room_owner));
 
     HttpServer::new(move || {
@@ -84,8 +91,7 @@ async fn socket(
         None => {
             let owner = room_owner.clone();
             let mut owner = owner.lock().await;
-            let router = rheomesh::router::Router::new(config);
-            let room = owner.create_new_room(room_id.to_string(), router).await;
+            let room = owner.create_new_room(room_id.to_string(), config).await;
             let server = WebSocket::new(room).await;
             ws::start(server, &req, stream)
         }
@@ -441,12 +447,14 @@ enum InternalMessage {}
 
 struct RoomOwner {
     rooms: HashMap<String, Arc<Room>>,
+    worker: Arc<Mutex<rheomesh::worker::Worker>>,
 }
 
 impl RoomOwner {
-    pub fn new() -> Self {
+    pub fn new(worker: Arc<Mutex<rheomesh::worker::Worker>>) -> Self {
         RoomOwner {
             rooms: HashMap::<String, Arc<Room>>::new(),
+            worker,
         }
     }
 
@@ -457,8 +465,10 @@ impl RoomOwner {
     async fn create_new_room(
         &mut self,
         id: String,
-        router: Arc<Mutex<rheomesh::router::Router>>,
+        config: rheomesh::config::MediaConfig,
     ) -> Arc<Room> {
+        let mut worker = self.worker.lock().await;
+        let router = worker.new_router(config);
         let room = Room::new(id.clone(), router);
         let a = Arc::new(room);
         self.rooms.insert(id.clone(), a.clone());

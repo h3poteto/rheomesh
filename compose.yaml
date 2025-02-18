@@ -6,7 +6,7 @@ services:
     volumes:
       - ./client:/etc/client
       - node_modules:/etc/client/node_modules
-      - next:/etc/client/example/multiple/.next/
+      - next1:/etc/client/example/multiple/.next/
     working_dir: /etc/client
     environment:
       NEXT_PUBLIC_SERVER_PORT: 4001
@@ -18,7 +18,7 @@ services:
     volumes:
       - ./client:/etc/client
       - node_modules:/etc/client/node_modules
-      - next:/etc/client/example/multiple/.next
+      - next2:/etc/client/example/multiple/.next
     working_dir: /etc/client
     environment:
       NEXT_PUBLIC_SERVER_PORT: 4002
@@ -28,22 +28,40 @@ services:
     image: rust:1.84.1-slim
     ports:
       - "4001:4000"
+      - "12000-12020:12000-12020/udp"
+      - "12000-12020:12000-12020"
     volumes:
       - ./sfu:/etc/sfu
       - target:/etc/sfu/target
     working_dir: /etc/sfu
+    environment:
+      LOCAL_IP: sfu1
+      RTC_MIN_PORT: 12000
+      RTC_MAX_PORT: 12020
     command: cargo run --example relay_server
   sfu2:
     image: rust:1.84.1-slim
     ports:
       - "4002:4000"
+      - "13000-13020:13000-13020/udp"
+      - "13000-13020:13000-13020"
     volumes:
       - ./sfu:/etc/sfu
       - target:/etc/sfu/target
     working_dir: /etc/sfu
+    environment:
+      LOCAL_IP: sfu2
+      RTC_MIN_PORT: 13000
+      RTC_MAX_PORT: 13020
     command: cargo run --example relay_server
 
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+
 volumes:
-  next:
+  next1:
+  next2:
   node_modules:
   target:

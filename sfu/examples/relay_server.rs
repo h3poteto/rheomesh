@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
@@ -7,6 +8,7 @@ use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
+use redis::Commands;
 use rheomesh::config::MediaConfig;
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
@@ -30,7 +32,14 @@ async fn main() -> std::io::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let room_owner = RoomOwner::new();
+    let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig {
+        relay_sender_port: 9441,
+        relay_server_udp_port: 9442,
+        relay_server_tcp_port: 9443,
+    })
+    .await
+    .unwrap();
+    let room_owner = RoomOwner::new(worker);
     let room_data = Data::new(Mutex::new(room_owner));
 
     HttpServer::new(move || {
@@ -75,15 +84,34 @@ async fn socket(
             ws::start(server, &req, stream)
         }
         None => {
-            // TODO: Store router_id, room_id, and IP in redis
             let owner = room_owner.clone();
             let mut owner = owner.lock().await;
-            let router = rheomesh::router::Router::new(config);
-            let room = owner.create_new_room(room_id.to_string(), router).await;
+            let (room, router_id) = owner.create_new_room(room_id.to_string(), config).await;
+            {
+                store_room(
+                    router_id,
+                    room_id.to_string(),
+                    env::var("LOCAL_IP").unwrap(),
+                );
+            }
             let server = WebSocket::new(room).await;
             ws::start(server, &req, stream)
         }
     }
+}
+
+fn store_room(router_id: String, room_id: String, ip: String) {
+    let client = redis::Client::open("redis://redis/").unwrap();
+    let mut conn = client.get_connection().unwrap();
+    let _: () = conn.hset(room_id, ip, router_id).unwrap();
+}
+
+fn get_pair_servers(room_id: String, my_ip: String) -> HashMap<String, String> {
+    let client = redis::Client::open("redis://redis/").unwrap();
+    let mut conn = client.get_connection().unwrap();
+    let mut res: HashMap<String, String> = conn.hgetall(room_id).unwrap();
+    let _ = res.remove(&my_ip);
+    res
 }
 
 struct WebSocket {
@@ -110,8 +138,8 @@ impl WebSocket {
         }];
         // Port range of your server.
         config.port_range = Some(rheomesh::config::PortRange {
-            min: 12000,
-            max: 15000,
+            min: env::var("RTC_MIN_PORT").unwrap().parse().unwrap(),
+            max: env::var("RTC_MAX_PORT").unwrap().parse().unwrap(),
         });
 
         let publish_transport = router.create_publish_transport(config.clone()).await;
@@ -288,6 +316,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let room = self.room.clone();
                 let publish_transport = self.publish_transport.clone();
                 let publishers = self.publishers.clone();
+                let room_id = room.id.clone();
                 actix::spawn(async move {
                     match publish_transport.publish(track_id).await {
                         Ok(publisher) => {
@@ -308,6 +337,12 @@ impl Handler<ReceivedMessage> for WebSocket {
                                     publisher_ids: vec![track_id.clone()],
                                 });
                             });
+
+                            let servers = get_pair_servers(room_id, env::var("LOCAL_IP").unwrap());
+                            for (ip, router_id) in servers {
+                                let mut publisher = publisher.lock().await;
+                                let _ = publisher.relay_to(ip, router_id).await.unwrap();
+                            }
                         }
                         Err(err) => {
                             tracing::error!("{}", err);
@@ -435,12 +470,14 @@ enum InternalMessage {}
 
 struct RoomOwner {
     rooms: HashMap<String, Arc<Room>>,
+    worker: Arc<Mutex<rheomesh::worker::Worker>>,
 }
 
 impl RoomOwner {
-    pub fn new() -> Self {
+    pub fn new(worker: Arc<Mutex<rheomesh::worker::Worker>>) -> Self {
         RoomOwner {
             rooms: HashMap::<String, Arc<Room>>::new(),
+            worker,
         }
     }
 
@@ -451,25 +488,33 @@ impl RoomOwner {
     async fn create_new_room(
         &mut self,
         id: String,
-        router: Arc<Mutex<rheomesh::router::Router>>,
-    ) -> Arc<Room> {
+        config: rheomesh::config::MediaConfig,
+    ) -> (Arc<Room>, String) {
+        let mut worker = self.worker.lock().await;
+        let router = worker.new_router(config);
+        #[allow(unused)]
+        let mut router_id = "".to_string();
+        {
+            let locked = router.lock().await;
+            router_id = locked.id.clone();
+        }
         let room = Room::new(id.clone(), router);
         let a = Arc::new(room);
         self.rooms.insert(id.clone(), a.clone());
-        a
+        (a, router_id)
     }
 }
 
 struct Room {
-    _id: String,
+    id: String,
     pub router: Arc<Mutex<rheomesh::router::Router>>,
     users: std::sync::Mutex<Vec<Addr<WebSocket>>>,
 }
 
 impl Room {
-    pub fn new(_id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
+    pub fn new(id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
         Self {
-            _id,
+            id,
             router,
             users: std::sync::Mutex::new(Vec::new()),
         }
