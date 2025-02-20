@@ -1,19 +1,24 @@
-use tokio::sync::broadcast;
+use std::sync::Arc;
+
+use tokio::sync::{broadcast, mpsc};
 use webrtc::rtp;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 
 use crate::rtp::layer::Layer;
+use crate::track::Track;
+use crate::transport;
 
 #[derive(Debug)]
 pub struct RelayedTrack {
     /// The ID is the same as published track_id.
-    pub id: String,
-    pub ssrc: u32,
-    pub rid: String,
-    pub mime_type: String,
-    pub codec_capability: RTCRtpCodecCapability,
-    pub stream_id: String,
-    pub(crate) rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
+    id: String,
+    ssrc: u32,
+    rid: String,
+    mime_type: String,
+    codec_capability: RTCRtpCodecCapability,
+    stream_id: String,
+    rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
+    rtcp_sender: Arc<transport::RtcpSender>,
 }
 
 impl RelayedTrack {
@@ -26,6 +31,10 @@ impl RelayedTrack {
         stream_id: String,
     ) -> Self {
         let (sender, _reader) = broadcast::channel::<(rtp::packet::Packet, Layer)>(1024);
+        // For relayed track, RTCP will not work properly.
+        // Even though it receives RTCP packets, this server doesn't send it to the source publisher.
+        // So, this rtcp_sender is dummy.
+        let (rtcp_sender, _) = mpsc::unbounded_channel();
         Self {
             id,
             ssrc,
@@ -34,8 +43,45 @@ impl RelayedTrack {
             codec_capability,
             stream_id,
             rtp_packet_sender: sender,
+            rtcp_sender: Arc::new(rtcp_sender),
         }
     }
+}
+
+impl Track for RelayedTrack {
+    fn rtcp_sender(&self) -> Arc<transport::RtcpSender> {
+        self.rtcp_sender.clone()
+    }
+
+    fn rtp_packet_sender(&self) -> broadcast::Sender<(rtp::packet::Packet, Layer)> {
+        self.rtp_packet_sender.clone()
+    }
+
+    fn mime_type(&self) -> String {
+        self.mime_type.clone()
+    }
+
+    fn capability(&self) -> RTCRtpCodecCapability {
+        self.codec_capability.clone().into()
+    }
+
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+
+    fn stream_id(&self) -> String {
+        self.stream_id.clone()
+    }
+
+    fn ssrc(&self) -> u32 {
+        self.ssrc
+    }
+
+    fn rid(&self) -> String {
+        self.rid.clone()
+    }
+
+    fn close(&self) {}
 }
 
 impl Drop for RelayedTrack {

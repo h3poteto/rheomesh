@@ -9,8 +9,11 @@ use tokio::{
 
 use crate::{
     error::Error,
-    relay::data::{PacketData, TrackData},
-    relay::relayed_publisher::RelayedPublisher,
+    relay::{
+        data::{PacketData, TrackData},
+        relayed_publisher::RelayedPublisher,
+    },
+    track::Track,
     worker::Worker,
 };
 
@@ -164,10 +167,10 @@ impl RelayServer {
             if let Some(publisher) = publishers.get(&packet_data.track_id) {
                 let publisher = publisher.lock().await;
                 if let Some(track) = publisher.local_tracks.get(&packet_data.ssrc) {
-                    if track.rtp_packet_sender.receiver_count() > 0 {
-                        if let Err(err) = track
-                            .rtp_packet_sender
-                            .send((packet_data.packet, packet_data.layer))
+                    let rtp_packet_sender = track.rtp_packet_sender();
+                    if rtp_packet_sender.receiver_count() > 0 {
+                        if let Err(err) =
+                            rtp_packet_sender.send((packet_data.packet, packet_data.layer))
                         {
                             tracing::error!(
                                 "RelayedTrack id={} ssrc={} failed to send rtp: {}",

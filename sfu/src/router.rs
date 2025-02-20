@@ -7,7 +7,9 @@ use crate::{
     local_track::LocalTrack,
     publish_transport::PublishTransport,
     publisher::Publisher,
-    relay::{relayed_publisher::RelayedPublisher, sender::RelaySender},
+    relay::{
+        relayed_publisher::RelayedPublisher, relayed_track::RelayedTrack, sender::RelaySender,
+    },
     subscribe_transport::SubscribeTransport,
 };
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -128,6 +130,16 @@ impl Router {
                     let data_id = data_publisher.id.clone();
                     r.data_publishers.insert(data_id, data_publisher);
                 }
+                RouterEvent::GetRelayedPublisher(track_id, reply_sender) => {
+                    let r = router.lock().await;
+                    let publisher = r
+                        .relayed_publishers
+                        .iter()
+                        .find(|(id, _)| *id == track_id)
+                        .map(|(_, publisher)| publisher);
+                    let data = publisher.cloned();
+                    let _ = reply_sender.send(data);
+                }
                 RouterEvent::DataRemoved(data_publisher_id) => {
                     let mut r = router.lock().await;
                     r.data_publishers.remove(&data_publisher_id);
@@ -186,6 +198,38 @@ impl Router {
         self.relayed_publishers.push((track_id, relayed_publisher));
     }
 
+    pub(crate) async fn find_relayed_publisher(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        publisher_id: String,
+    ) -> Result<Arc<Mutex<RelayedPublisher>>, Error> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = event_sender.send(RouterEvent::GetRelayedPublisher(publisher_id.clone(), tx));
+
+        let reply = rx.await.unwrap();
+        match reply {
+            None => {
+                return Err(Error::new_subscriber(
+                    format!("RelayedPublisher for {} is not found", publisher_id),
+                    SubscriberErrorKind::TrackNotFoundError,
+                ))
+            }
+            Some(publisher) => Ok(publisher),
+        }
+    }
+
+    pub(crate) async fn find_relayed_track(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        publisher_id: String,
+        rid: RID,
+    ) -> Result<Arc<RelayedTrack>, Error> {
+        let publisher = Self::find_relayed_publisher(event_sender, publisher_id).await?;
+
+        let guard = publisher.lock().await;
+        let relayed_track = guard.get_relayed_track(rid.to_string().as_str())?;
+        Ok(relayed_track)
+    }
+
     pub(crate) async fn remove_relayd_publisher(&mut self, track_id: &str) {
         self.relayed_publishers.retain(|(id, _)| id != track_id);
     }
@@ -204,6 +248,10 @@ pub(crate) enum RouterEvent {
     DataRemoved(String),
     GetPublisher(String, oneshot::Sender<Option<Arc<Mutex<Publisher>>>>),
     GetDataPublisher(String, oneshot::Sender<Option<Arc<DataPublisher>>>),
+    GetRelayedPublisher(
+        String,
+        oneshot::Sender<Option<Arc<Mutex<RelayedPublisher>>>>,
+    ),
     Closed,
 }
 

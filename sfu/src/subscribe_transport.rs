@@ -23,10 +23,10 @@ use webrtc_sdp::parse_sdp;
 use crate::config::{find_extmap_order, MediaConfig, WebRTCTransportConfig, RID};
 use crate::data_publisher::DataPublisher;
 use crate::data_subscriber::DataSubscriber;
-use crate::local_track::LocalTrack;
 use crate::prober::Prober;
 use crate::router::Router;
 use crate::subscriber::Subscriber;
+use crate::track::Track;
 use crate::transport::{OnIceCandidateFn, OnNegotiationNeededFn, PeerConnection, Transport};
 use crate::{
     error::{Error, SubscriberErrorKind},
@@ -114,8 +114,28 @@ impl SubscribeTransport {
         &self,
         publisher_id: String,
         rid: RID,
-    ) -> Result<Arc<LocalTrack>, Error> {
-        Router::find_local_track(self.router_event_sender.clone(), publisher_id, rid).await
+    ) -> Result<Arc<dyn Track>, Error> {
+        match Router::find_local_track(
+            self.router_event_sender.clone(),
+            publisher_id.clone(),
+            rid.clone(),
+        )
+        .await
+        {
+            Ok(track) => Ok(track),
+            Err(_) => {
+                match Router::find_relayed_track(
+                    self.router_event_sender.clone(),
+                    publisher_id,
+                    rid,
+                )
+                .await
+                {
+                    Ok(relayed_track) => Ok(relayed_track),
+                    Err(err) => Err(err),
+                }
+            }
+        }
     }
 
     /// This starts subscribing the data channel and returns an offer sdp. Please provide a [`crate::data_publisher::DataPublisher`] ID.
@@ -192,23 +212,23 @@ impl SubscribeTransport {
     async fn subscribe_track(
         &self,
         publisher_id: String,
-        local_track: Arc<LocalTrack>,
+        local_track: Arc<dyn Track>,
     ) -> Result<Arc<Mutex<Subscriber>>, Error> {
-        let publisher_rtcp_sender = local_track.rtcp_sender.clone();
-        let mime_type = local_track.track.codec().capability.mime_type;
+        let publisher_rtcp_sender = local_track.rtcp_sender().clone();
+        let mime_type = local_track.mime_type();
 
         let local_track_rtp = Arc::new(TrackLocalStaticRTP::new(
-            local_track.track.codec().capability,
-            local_track.track.id(),
-            local_track.track.stream_id(),
+            local_track.capability(),
+            local_track.id(),
+            local_track.stream_id(),
         ));
 
         let rtcp_sender = self
             .peer_connection
             .add_track(local_track_rtp.clone())
             .await?;
-        let media_ssrc = local_track.track.ssrc();
-        let rtp_sender = local_track.rtp_packet_sender.clone();
+        let media_ssrc = local_track.ssrc();
+        let rtp_sender = local_track.rtp_packet_sender();
 
         let (subscriber, event_sender) = Subscriber::new(
             publisher_id.clone(),

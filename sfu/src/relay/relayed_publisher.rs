@@ -3,6 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, Mutex};
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 
+use crate::{
+    error::{Error, PublisherErrorKind},
+    track::Track,
+};
+
 use super::relayed_track::RelayedTrack;
 
 #[derive(Debug)]
@@ -60,6 +65,41 @@ impl RelayedPublisher {
                 rid,
                 Arc::new(local_track),
             ));
+    }
+
+    pub(crate) fn get_relayed_track(&self, rid: &str) -> Result<Arc<RelayedTrack>, Error> {
+        if let Some(ssrc) = self.rid_to_ssrc.get(rid) {
+            if let Some(track) = self.local_tracks.get(ssrc) {
+                tracing::debug!(
+                    "Found specified relayed track with rid={}, ssrc={}",
+                    rid,
+                    track.ssrc()
+                );
+                Ok(track.clone())
+            } else {
+                tracing::debug!(
+                    "Failed to find relayed track for rid={} and ssrc={}",
+                    rid,
+                    ssrc
+                );
+                self.get_random_relayed_track()
+            }
+        } else {
+            tracing::debug!("Faild to find ssrc for rid={}", rid);
+            self.get_random_relayed_track()
+        }
+    }
+
+    fn get_random_relayed_track(&self) -> Result<Arc<RelayedTrack>, Error> {
+        let track = self
+            .local_tracks
+            .values()
+            .next()
+            .ok_or(Error::new_publisher(
+                "RelayedPublisher does not have track".to_owned(),
+                PublisherErrorKind::TrackNotFoundError,
+            ))?;
+        Ok(track.clone())
     }
 
     pub(crate) async fn publisher_event_loop(

@@ -14,6 +14,7 @@ use crate::{
     relay::sender::RelaySender,
     router::RouterEvent,
     subscriber::SubscriberEvent,
+    track::Track,
     transport,
 };
 
@@ -95,7 +96,7 @@ impl Publisher {
                 tracing::debug!(
                     "Found specified local track with rid={}, ssrc={}",
                     rid,
-                    track.ssrc
+                    track.ssrc()
                 );
                 Ok(track.clone())
             } else {
@@ -168,7 +169,7 @@ impl Publisher {
                 PublisherEvent::Close => {
                     let p = publisher.lock().await;
                     for (_ssrc, track) in &p.local_tracks {
-                        track.close().await;
+                        track.close();
                     }
                     for (ip, router_id) in p.relayed_targets.iter() {
                         if let Err(err) = p
@@ -203,17 +204,17 @@ impl Publisher {
                     ip.clone(),
                     router_id.clone(),
                     self.track_id.clone(),
-                    local_track.ssrc,
-                    local_track.track.codec().capability,
-                    local_track.track.stream_id(),
-                    local_track.track.codec().capability.mime_type,
-                    local_track.track.rid().to_string(),
+                    local_track.ssrc(),
+                    local_track.capability(),
+                    local_track.stream_id(),
+                    local_track.mime_type(),
+                    local_track.rid(),
                 )
                 .await?;
             if !res {
                 return Ok(false);
             }
-            let rtp_packet_sender = local_track.rtp_packet_sender.clone();
+            let rtp_packet_sender = local_track.rtp_packet_sender();
             let ssrc = ssrc.clone();
             let ip = ip.clone();
             let track_id = self.track_id.clone();

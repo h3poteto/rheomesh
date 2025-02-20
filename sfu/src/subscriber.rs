@@ -23,6 +23,7 @@ use crate::{
     publisher::PublisherType,
     router::{Router, RouterEvent},
     rtp::layer::Layer,
+    track::Track,
     transport,
 };
 
@@ -172,17 +173,17 @@ impl Subscriber {
         )
         .await?;
 
-        if local_track.ssrc == self.media_ssrc {
+        if local_track.ssrc() == self.media_ssrc {
             tracing::debug!("rid does not change");
             return Ok(());
         }
-        self.media_ssrc = local_track.ssrc;
+        self.media_ssrc = local_track.ssrc();
 
         {
             let id = self.id.clone();
-            let ssrc = local_track.ssrc.clone();
+            let ssrc = local_track.ssrc();
             let track_local = self.track_local.clone();
-            let rtp_sender = local_track.rtp_packet_sender.clone();
+            let rtp_sender = local_track.rtp_packet_sender();
             let replaced_sender = self.replaced_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
             let rtp_lock = self.rtp_lock.clone();
@@ -209,7 +210,7 @@ impl Subscriber {
         }
         {
             let id = self.id.clone();
-            let ssrc = local_track.ssrc.clone();
+            let ssrc = local_track.ssrc();
             let rtcp_sender = self.rtcp_sender.clone();
             let replaced_sender = self.replaced_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();

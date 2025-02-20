@@ -29,5 +29,6 @@ pub mod rtp;
 pub mod subscribe_transport;
 /// Audio and video methods for subscriber.
 pub mod subscriber;
+pub mod track;
 pub mod transport;
 pub mod worker;
