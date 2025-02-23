@@ -7,6 +7,7 @@ use webrtc::{rtp, rtp_transceiver::rtp_codec::RTCRtpCodecCapability};
 
 use crate::{
     error::Error,
+    publisher::PublisherType,
     relay::data::{PacketData, TrackData},
     rtp::layer::Layer,
 };
@@ -44,10 +45,12 @@ impl RelaySender {
         stream_id: String,
         mime_type: String,
         rid: String,
+        publisher_type: PublisherType,
     ) -> Result<bool, Error> {
         let addr = format!("{}:{}", ip, self.server_tcp_port);
         let mut stream = TcpStream::connect(addr).await?;
 
+        tracing::debug!("creating relay track with {:#?}", publisher_type);
         let data = TrackData {
             router_id,
             track_id,
@@ -57,6 +60,7 @@ impl RelaySender {
             mime_type,
             rid,
             closed: false,
+            publisher_type,
         };
         let d = serde_json::to_string(&data).unwrap();
         stream.write(d.as_bytes()).await?;
@@ -90,6 +94,7 @@ impl RelaySender {
             mime_type: "".to_owned(),
             rid: "".to_owned(),
             closed: true,
+            publisher_type: PublisherType::Simple,
         };
         let d = serde_json::to_string(&data).unwrap();
         stream.write(d.as_bytes()).await?;

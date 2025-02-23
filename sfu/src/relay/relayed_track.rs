@@ -34,7 +34,11 @@ impl RelayedTrack {
         // For relayed track, RTCP will not work properly.
         // Even though it receives RTCP packets, this server doesn't send it to the source publisher.
         // So, this rtcp_sender is dummy.
-        let (rtcp_sender, _) = mpsc::unbounded_channel();
+        let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            Self::rtcp_event_loop(rtcp_receiver).await;
+        });
+
         Self {
             id,
             ssrc,
@@ -44,6 +48,14 @@ impl RelayedTrack {
             stream_id,
             rtp_packet_sender: sender,
             rtcp_sender: Arc::new(rtcp_sender),
+        }
+    }
+
+    async fn rtcp_event_loop(mut rtcp_receiver: transport::RtcpReceiver) {
+        loop {
+            if let Some(data) = rtcp_receiver.recv().await {
+                tracing::trace!("Relayed rtcp: {}", data);
+            }
         }
     }
 }

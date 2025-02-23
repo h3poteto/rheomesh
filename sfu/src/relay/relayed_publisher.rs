@@ -5,6 +5,7 @@ use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 
 use crate::{
     error::{Error, PublisherErrorKind},
+    publisher::PublisherType,
     track::Track,
 };
 
@@ -16,10 +17,14 @@ pub struct RelayedPublisher {
     pub(crate) local_tracks: HashMap<u32, Arc<RelayedTrack>>,
     publisher_event_sender: mpsc::UnboundedSender<RelayedPublisherEvent>,
     rid_to_ssrc: HashMap<String, u32>,
+    pub publisher_type: PublisherType,
 }
 
 impl RelayedPublisher {
-    pub(crate) fn new(track_id: String) -> Arc<Mutex<RelayedPublisher>> {
+    pub(crate) fn new(
+        track_id: String,
+        publisher_type: PublisherType,
+    ) -> Arc<Mutex<RelayedPublisher>> {
         let (tx, rx) = mpsc::unbounded_channel::<RelayedPublisherEvent>();
 
         let publisher = Self {
@@ -27,6 +32,7 @@ impl RelayedPublisher {
             local_tracks: HashMap::new(),
             publisher_event_sender: tx,
             rid_to_ssrc: HashMap::new(),
+            publisher_type,
         };
 
         let publisher = Arc::new(Mutex::new(publisher));
@@ -50,21 +56,23 @@ impl RelayedPublisher {
         codec_capability: RTCRtpCodecCapability,
         stream_id: String,
     ) {
-        let local_track = RelayedTrack::new(
-            track_id,
-            ssrc,
-            rid.clone(),
-            mime_type,
-            codec_capability,
-            stream_id,
-        );
-        let _ = self
-            .publisher_event_sender
-            .send(RelayedPublisherEvent::TrackAdded(
+        if let None = self.local_tracks.get(&ssrc) {
+            let local_track = RelayedTrack::new(
+                track_id,
                 ssrc,
-                rid,
-                Arc::new(local_track),
-            ));
+                rid.clone(),
+                mime_type,
+                codec_capability,
+                stream_id,
+            );
+            let _ = self
+                .publisher_event_sender
+                .send(RelayedPublisherEvent::TrackAdded(
+                    ssrc,
+                    rid,
+                    Arc::new(local_track),
+                ));
+        }
     }
 
     pub(crate) fn get_relayed_track(&self, rid: &str) -> Result<Arc<RelayedTrack>, Error> {
@@ -85,7 +93,7 @@ impl RelayedPublisher {
                 self.get_random_relayed_track()
             }
         } else {
-            tracing::debug!("Faild to find ssrc for rid={}", rid);
+            tracing::debug!("Failed to find ssrc for rid={}", rid);
             self.get_random_relayed_track()
         }
     }

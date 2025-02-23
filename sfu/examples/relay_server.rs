@@ -8,7 +8,8 @@ use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
-use redis::Commands;
+use futures_util::StreamExt;
+use redis::{AsyncCommands, Commands};
 use rheomesh::config::MediaConfig;
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
@@ -120,6 +121,7 @@ struct WebSocket {
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     subscribers: Arc<Mutex<HashMap<String, Arc<Mutex<Subscriber>>>>>,
+    redis_client: redis::Client,
 }
 
 impl WebSocket {
@@ -144,12 +146,14 @@ impl WebSocket {
 
         let publish_transport = router.create_publish_transport(config.clone()).await;
         let subscribe_transport = router.create_subscribe_transport(config).await;
+        let client = redis::Client::open("redis://redis/").unwrap();
         Self {
             room,
             publish_transport: Arc::new(publish_transport),
             subscribe_transport: Arc::new(subscribe_transport),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
+            redis_client: client,
         }
     }
 }
@@ -228,25 +232,46 @@ impl Handler<ReceivedMessage> for WebSocket {
             ReceivedMessage::SubscriberInit => {
                 let subscribe_transport = self.subscribe_transport.clone();
                 let room = self.room.clone();
-                tokio::spawn(async move {
-                    let addr = address.clone();
-                    let addr2 = address.clone();
-                    subscribe_transport
-                        .on_ice_candidate(Box::new(move |candidate| {
-                            let init = candidate.to_json().expect("failed to parse candidate");
-                            addr.do_send(SendingMessage::SubscriberIce { candidate: init });
-                        }))
-                        .await;
-                    subscribe_transport
-                        .on_negotiation_needed(Box::new(move |offer| {
-                            addr2.do_send(SendingMessage::Offer { sdp: offer });
-                        }))
-                        .await;
+                {
+                    let address = address.clone();
+                    tokio::spawn(async move {
+                        let addr1 = address.clone();
+                        let addr2 = address.clone();
+                        subscribe_transport
+                            .on_ice_candidate(Box::new(move |candidate| {
+                                let init = candidate.to_json().expect("failed to parse candidate");
+                                addr1.do_send(SendingMessage::SubscriberIce { candidate: init });
+                            }))
+                            .await;
+                        subscribe_transport
+                            .on_negotiation_needed(Box::new(move |offer| {
+                                addr2.do_send(SendingMessage::Offer { sdp: offer });
+                            }))
+                            .await;
 
-                    let router = room.router.lock().await;
-                    let ids = router.publisher_ids();
-                    tracing::info!("router publisher ids {:#?}", ids);
-                    address.do_send(SendingMessage::Published { publisher_ids: ids });
+                        let router = room.router.lock().await;
+                        let ids = router.publisher_ids();
+                        tracing::info!("router publisher ids {:#?}", ids);
+                        address.do_send(SendingMessage::Published { publisher_ids: ids });
+                    });
+                }
+
+                let redis_client = self.redis_client.clone();
+                let channel = self.room.id.clone();
+                let address = address.clone();
+                tokio::spawn(async move {
+                    let mut conn = redis_client.get_async_pubsub().await.unwrap();
+                    conn.subscribe(channel).await.unwrap();
+
+                    let mut stream = conn.on_message();
+                    while let Some(msg) = stream.next().await {
+                        let publisher_id = msg.get_payload::<String>().unwrap();
+                        tracing::info!("relayed publisher received id={}", publisher_id);
+
+                        address.do_send(SendingMessage::Published {
+                            publisher_ids: vec![publisher_id],
+                        });
+                    }
                 });
             }
 
@@ -317,6 +342,8 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let publish_transport = self.publish_transport.clone();
                 let publishers = self.publishers.clone();
                 let room_id = room.id.clone();
+                let redis_client = self.redis_client.clone();
+                let channel = self.room.id.clone();
                 actix::spawn(async move {
                     match publish_transport.publish(track_id).await {
                         Ok(publisher) => {
@@ -339,9 +366,21 @@ impl Handler<ReceivedMessage> for WebSocket {
                             });
 
                             let servers = get_pair_servers(room_id, env::var("LOCAL_IP").unwrap());
+                            let mut con = redis_client
+                                .get_multiplexed_async_connection()
+                                .await
+                                .unwrap();
                             for (ip, router_id) in servers {
                                 let mut publisher = publisher.lock().await;
-                                let _ = publisher.relay_to(ip, router_id).await.unwrap();
+                                let _ = publisher.relay_to(ip, router_id.clone()).await.unwrap();
+
+                                let _ = con
+                                    .publish::<String, String, i64>(
+                                        channel.clone(),
+                                        track_id.clone(),
+                                    )
+                                    .await
+                                    .unwrap();
                             }
                         }
                         Err(err) => {
@@ -506,7 +545,7 @@ impl RoomOwner {
 }
 
 struct Room {
-    id: String,
+    pub id: String,
     pub router: Arc<Mutex<rheomesh::router::Router>>,
     users: std::sync::Mutex<Vec<Addr<WebSocket>>>,
 }

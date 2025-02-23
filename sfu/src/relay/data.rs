@@ -8,7 +8,7 @@ use webrtc::{
 };
 use webrtc_util::Unmarshal;
 
-use crate::{error::Error, rtp::layer::Layer};
+use crate::{error::Error, publisher::PublisherType, rtp::layer::Layer};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct TrackData {
@@ -20,6 +20,7 @@ pub(crate) struct TrackData {
     pub(crate) mime_type: String,
     pub(crate) rid: String,
     pub(crate) closed: bool,
+    pub(crate) publisher_type: PublisherType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

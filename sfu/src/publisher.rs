@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use derivative::Derivative;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 use webrtc::{
     rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
@@ -104,7 +105,7 @@ impl Publisher {
                 self.get_random_local_track()
             }
         } else {
-            tracing::debug!("Faild to find ssrc for rid={}", rid);
+            tracing::debug!("Failed to find ssrc for rid={}", rid);
             self.get_random_local_track()
         }
     }
@@ -128,7 +129,7 @@ impl Publisher {
         self.subscriber_event_sender.push(event_sender);
     }
 
-    pub(crate) fn set_publisher_type(&mut self, publisher_type: PublisherType) {
+    pub(crate) async fn set_publisher_type(&mut self, publisher_type: PublisherType) {
         self.publisher_type = publisher_type;
         for sender in self.subscriber_event_sender.iter() {
             if let Err(err) =
@@ -152,8 +153,46 @@ impl Publisher {
             match event {
                 PublisherEvent::TrackAdded(ssrc, rid, local_track) => {
                     let mut p = publisher.lock().await;
-                    p.local_tracks.insert(ssrc, local_track);
+                    p.local_tracks.insert(ssrc, local_track.clone());
                     p.rid_to_ssrc.insert(rid, ssrc);
+
+                    for (ip, router_id) in p.relayed_targets.clone().into_iter() {
+                        let relay_sender = p.relay_sender.clone();
+                        let track_id = local_track.id();
+                        match relay_sender
+                            .create_relay_track(
+                                ip.clone(),
+                                router_id.clone(),
+                                track_id.clone(),
+                                ssrc,
+                                local_track.capability(),
+                                local_track.stream_id(),
+                                local_track.mime_type(),
+                                local_track.rid(),
+                                p.publisher_type.clone(),
+                            )
+                            .await
+                        {
+                            Ok(res) => {
+                                if res {
+                                    let rtp_packet_sender = local_track.rtp_packet_sender();
+                                    tokio::spawn(async move {
+                                        let _ = relay_sender
+                                            .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
+                                            .await;
+                                    });
+                                }
+                            }
+                            Err(err) => {
+                                tracing::error!(
+                                    "Failed to create relay track: track_id={}, ssrc={}: {}",
+                                    track_id,
+                                    ssrc,
+                                    err
+                                );
+                            }
+                        }
+                    }
                 }
                 PublisherEvent::TrackRemoved(ssrc) => {
                     let mut p = publisher.lock().await;
@@ -209,6 +248,7 @@ impl Publisher {
                     local_track.stream_id(),
                     local_track.mime_type(),
                     local_track.rid(),
+                    self.publisher_type.clone(),
                 )
                 .await?;
             if !res {
@@ -244,8 +284,9 @@ impl Drop for Publisher {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub enum PublisherType {
+    #[default]
     Simple,
     Simulcast,
 }
