@@ -230,3 +230,10 @@ impl From<u8> for RID {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct WorkerConfig {
+    pub relay_sender_port: u16,
+    pub relay_server_tcp_port: u16,
+    pub relay_server_udp_port: u16,
+}

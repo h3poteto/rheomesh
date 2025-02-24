@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
@@ -7,7 +8,8 @@ use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
-use rheomesh::config::{CodecConfig, MediaConfig};
+use redis::Commands;
+use rheomesh::config::MediaConfig;
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
@@ -16,12 +18,9 @@ use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use webrtc::api::media_engine;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters};
-use webrtc::rtp_transceiver::RTCPFeedback;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -76,11 +75,7 @@ async fn socket(
         .await
         .find_by_id(room_id.to_string());
 
-    let mut config = MediaConfig::default();
-    config.codec = CodecConfig {
-        audio: audio_codecs(),
-        video: video_codecs(),
-    };
+    let config = MediaConfig::default();
 
     match find {
         Some(room) => {
@@ -91,11 +86,32 @@ async fn socket(
         None => {
             let owner = room_owner.clone();
             let mut owner = owner.lock().await;
-            let room = owner.create_new_room(room_id.to_string(), config).await;
+            let (room, router_id) = owner.create_new_room(room_id.to_string(), config).await;
+            {
+                store_room(
+                    router_id,
+                    room_id.to_string(),
+                    env::var("LOCAL_IP").unwrap(),
+                );
+            }
             let server = WebSocket::new(room).await;
             ws::start(server, &req, stream)
         }
     }
+}
+
+fn store_room(router_id: String, room_id: String, ip: String) {
+    let client = redis::Client::open("redis://redis/").unwrap();
+    let mut conn = client.get_connection().unwrap();
+    let _: () = conn.hset(room_id, ip, router_id).unwrap();
+}
+
+fn get_pair_servers(room_id: String, my_ip: String) -> HashMap<String, String> {
+    let client = redis::Client::open("redis://redis/").unwrap();
+    let mut conn = client.get_connection().unwrap();
+    let mut res: HashMap<String, String> = conn.hgetall(room_id).unwrap();
+    let _ = res.remove(&my_ip);
+    res
 }
 
 struct WebSocket {
@@ -122,8 +138,8 @@ impl WebSocket {
         }];
         // Port range of your server.
         config.port_range = Some(rheomesh::config::PortRange {
-            min: 12000,
-            max: 15000,
+            min: env::var("RTC_MIN_PORT").unwrap().parse().unwrap(),
+            max: env::var("RTC_MAX_PORT").unwrap().parse().unwrap(),
         });
 
         let publish_transport = router.create_publish_transport(config.clone()).await;
@@ -300,6 +316,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let room = self.room.clone();
                 let publish_transport = self.publish_transport.clone();
                 let publishers = self.publishers.clone();
+                let room_id = room.id.clone();
                 actix::spawn(async move {
                     match publish_transport.publish(track_id).await {
                         Ok(publisher) => {
@@ -320,6 +337,12 @@ impl Handler<ReceivedMessage> for WebSocket {
                                     publisher_ids: vec![track_id.clone()],
                                 });
                             });
+
+                            let servers = get_pair_servers(room_id, env::var("LOCAL_IP").unwrap());
+                            for (ip, router_id) in servers {
+                                let mut publisher = publisher.lock().await;
+                                let _ = publisher.relay_to(ip, router_id).await.unwrap();
+                            }
                         }
                         Err(err) => {
                             tracing::error!("{}", err);
@@ -466,26 +489,32 @@ impl RoomOwner {
         &mut self,
         id: String,
         config: rheomesh::config::MediaConfig,
-    ) -> Arc<Room> {
+    ) -> (Arc<Room>, String) {
         let mut worker = self.worker.lock().await;
         let router = worker.new_router(config);
+        #[allow(unused)]
+        let mut router_id = "".to_string();
+        {
+            let locked = router.lock().await;
+            router_id = locked.id.clone();
+        }
         let room = Room::new(id.clone(), router);
         let a = Arc::new(room);
         self.rooms.insert(id.clone(), a.clone());
-        a
+        (a, router_id)
     }
 }
 
 struct Room {
-    _id: String,
+    id: String,
     pub router: Arc<Mutex<rheomesh::router::Router>>,
     users: std::sync::Mutex<Vec<Addr<WebSocket>>>,
 }
 
 impl Room {
-    pub fn new(_id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
+    pub fn new(id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
         Self {
-            _id,
+            id,
             router,
             users: std::sync::Mutex::new(Vec::new()),
         }
@@ -505,220 +534,4 @@ impl Room {
         let users = self.users.lock().unwrap();
         users.iter().filter(|u| u != &user).cloned().collect()
     }
-}
-
-fn audio_codecs() -> Vec<RTCRtpCodecParameters> {
-    return vec![
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_OPUS.to_owned(),
-                clock_rate: 48000,
-                channels: 2,
-                sdp_fmtp_line: "minptime=10;useinbandfec=1".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 111,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_G722.to_owned(),
-                clock_rate: 8000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 9,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_PCMU.to_owned(),
-                clock_rate: 8000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 0,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_PCMA.to_owned(),
-                clock_rate: 8000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 8,
-            ..Default::default()
-        },
-    ];
-}
-
-fn video_codecs() -> Vec<RTCRtpCodecParameters> {
-    let video_rtcp_feedback = vec![
-        RTCPFeedback {
-            typ: "goog-remb".to_owned(),
-            parameter: "".to_owned(),
-        },
-        RTCPFeedback {
-            typ: "ccm".to_owned(),
-            parameter: "fir".to_owned(),
-        },
-        RTCPFeedback {
-            typ: "nack".to_owned(),
-            parameter: "".to_owned(),
-        },
-        RTCPFeedback {
-            typ: "nack".to_owned(),
-            parameter: "pli".to_owned(),
-        },
-    ];
-    return vec![
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 96,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "profile-id=0".to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 98,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "profile-id=1".to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 100,
-            ..Default::default()
-        },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 102,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 127,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 125,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 108,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 127,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640032"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 123,
-        //     ..Default::default()
-        // },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_AV1.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "profile-id=0".to_owned(),
-                rtcp_feedback: video_rtcp_feedback.clone(),
-            },
-            payload_type: 45,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_HEVC.to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: video_rtcp_feedback,
-            },
-            payload_type: 126,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
-                mime_type: "video/ulpfec".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 116,
-            ..Default::default()
-        },
-    ];
 }

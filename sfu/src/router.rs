@@ -7,6 +7,7 @@ use crate::{
     local_track::LocalTrack,
     publish_transport::PublishTransport,
     publisher::Publisher,
+    relay::{relayed_publisher::RelayedPublisher, sender::RelaySender},
     subscribe_transport::SubscribeTransport,
 };
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -17,33 +18,43 @@ use uuid::Uuid;
 pub struct Router {
     pub id: String,
     publishers: Vec<(String, Arc<Mutex<Publisher>>)>,
+    relayed_publishers: Vec<(String, Arc<Mutex<RelayedPublisher>>)>,
     data_publishers: HashMap<String, Arc<DataPublisher>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
+    relay_sender: Arc<RelaySender>,
 }
 
 impl Router {
-    pub fn new(media_config: MediaConfig) -> Arc<Mutex<Router>> {
+    pub(crate) fn new(
+        media_config: MediaConfig,
+        relay_sender: Arc<RelaySender>,
+    ) -> (Arc<Mutex<Router>>, String) {
         let id = Uuid::new_v4().to_string();
         let (tx, rx) = mpsc::unbounded_channel::<RouterEvent>();
 
         let r = Router {
             id: id.clone(),
             publishers: Vec::new(),
+            relayed_publishers: Vec::new(),
             data_publishers: HashMap::new(),
             router_event_sender: tx,
             media_config,
+            relay_sender,
         };
 
         tracing::debug!("Router {} is created", id);
 
         let router = Arc::new(Mutex::new(r));
-        let copied = Arc::clone(&router);
-        tokio::spawn(async move {
-            Router::router_event_loop(id, copied, rx).await;
-        });
+        {
+            let copied = Arc::clone(&router);
+            let id = id.clone();
+            tokio::spawn(async move {
+                Router::router_event_loop(id, copied, rx).await;
+            });
+        }
 
-        router
+        (router, id)
     }
 
     /// This returns [`crate::publisher::Publisher`] IDs that has already been published in this router. It is useful when a new user connect to the router and get already published media.
@@ -69,7 +80,13 @@ impl Router {
         transport_config: WebRTCTransportConfig,
     ) -> PublishTransport {
         let tx = self.router_event_sender.clone();
-        PublishTransport::new(tx, self.media_config.clone(), transport_config).await
+        PublishTransport::new(
+            tx,
+            self.media_config.clone(),
+            transport_config,
+            self.relay_sender.clone(),
+        )
+        .await
     }
 
     pub async fn create_subscribe_transport(
@@ -85,6 +102,7 @@ impl Router {
         router: Arc<Mutex<Router>>,
         mut event_receiver: mpsc::UnboundedReceiver<RouterEvent>,
     ) {
+        tracing::debug!("Router {} event loop started", id);
         while let Some(event) = event_receiver.recv().await {
             match event {
                 RouterEvent::MediaPublished(track_id, publisher) => {
@@ -160,8 +178,21 @@ impl Router {
         Ok(local_track)
     }
 
+    pub(crate) async fn add_relayed_publisher(
+        &mut self,
+        track_id: String,
+        relayed_publisher: Arc<Mutex<RelayedPublisher>>,
+    ) {
+        self.relayed_publishers.push((track_id, relayed_publisher));
+    }
+
+    pub(crate) async fn remove_relayd_publisher(&mut self, track_id: &str) {
+        self.relayed_publishers.retain(|(id, _)| id != track_id);
+    }
+
     pub fn close(&self) {
         let _ = self.router_event_sender.send(RouterEvent::Closed);
+        // TODO: Remove router from worker
     }
 }
 

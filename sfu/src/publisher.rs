@@ -11,6 +11,7 @@ use crate::{
     config::RID,
     error::{Error, PublisherErrorKind},
     local_track::LocalTrack,
+    relay::sender::RelaySender,
     router::RouterEvent,
     subscriber::SubscriberEvent,
     transport,
@@ -28,6 +29,8 @@ pub struct Publisher {
     rid_to_ssrc: HashMap<String, u32>,
     pub publisher_type: PublisherType,
     subscriber_event_sender: Vec<mpsc::UnboundedSender<SubscriberEvent>>,
+    relay_sender: Arc<RelaySender>,
+    relayed_targets: Vec<(String, String)>,
 }
 
 impl Publisher {
@@ -35,6 +38,7 @@ impl Publisher {
         track_id: String,
         router_sender: mpsc::UnboundedSender<RouterEvent>,
         publisher_type: PublisherType,
+        relay_sender: Arc<RelaySender>,
         close_callback: Box<dyn Fn(String) + Send + Sync>,
     ) -> Arc<Mutex<Publisher>> {
         let (tx, rx) = mpsc::unbounded_channel::<PublisherEvent>();
@@ -48,6 +52,8 @@ impl Publisher {
             rid_to_ssrc: HashMap::new(),
             publisher_type,
             subscriber_event_sender: vec![],
+            relay_sender,
+            relayed_targets: vec![],
         };
         let publisher = Arc::new(Mutex::new(publisher));
         {
@@ -164,11 +170,63 @@ impl Publisher {
                     for (_ssrc, track) in &p.local_tracks {
                         track.close().await;
                     }
+                    for (ip, router_id) in p.relayed_targets.iter() {
+                        if let Err(err) = p
+                            .relay_sender
+                            .remove_relayed_publisher(
+                                ip.to_string(),
+                                router_id.to_string(),
+                                p.track_id.clone(),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to remove relayed publisher track_id={}: {}",
+                                p.track_id,
+                                err
+                            );
+                        }
+                    }
+
                     break;
                 }
             }
         }
         tracing::debug!("Publisher {} event loop finished", id);
+    }
+
+    pub async fn relay_to(&mut self, ip: String, router_id: String) -> Result<bool, Error> {
+        for (ssrc, local_track) in self.local_tracks.iter() {
+            let res = self
+                .relay_sender
+                .create_relay_track(
+                    ip.clone(),
+                    router_id.clone(),
+                    self.track_id.clone(),
+                    local_track.ssrc,
+                    local_track.track.codec().capability,
+                    local_track.track.stream_id(),
+                    local_track.track.codec().capability.mime_type,
+                    local_track.track.rid().to_string(),
+                )
+                .await?;
+            if !res {
+                return Ok(false);
+            }
+            let rtp_packet_sender = local_track.rtp_packet_sender.clone();
+            let ssrc = ssrc.clone();
+            let ip = ip.clone();
+            let track_id = self.track_id.clone();
+            let relay_sender = self.relay_sender.clone();
+            tokio::spawn(async move {
+                let _ = relay_sender
+                    .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
+                    .await;
+            });
+        }
+
+        self.relayed_targets.push((ip, router_id));
+        Ok(true)
     }
 }
 
