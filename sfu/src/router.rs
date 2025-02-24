@@ -11,6 +11,7 @@ use crate::{
         relayed_publisher::RelayedPublisher, relayed_track::RelayedTrack, sender::RelaySender,
     },
     subscribe_transport::SubscribeTransport,
+    worker::WorkerEvent,
 };
 use tokio::sync::{mpsc, oneshot, Mutex};
 use uuid::Uuid;
@@ -25,12 +26,14 @@ pub struct Router {
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
     relay_sender: Arc<RelaySender>,
+    worker_event_sender: mpsc::UnboundedSender<WorkerEvent>,
 }
 
 impl Router {
     pub(crate) fn new(
         media_config: MediaConfig,
         relay_sender: Arc<RelaySender>,
+        worker_event_sender: mpsc::UnboundedSender<WorkerEvent>,
     ) -> (Arc<Mutex<Router>>, String) {
         let id = Uuid::new_v4().to_string();
         let (tx, rx) = mpsc::unbounded_channel::<RouterEvent>();
@@ -43,6 +46,7 @@ impl Router {
             router_event_sender: tx,
             media_config,
             relay_sender,
+            worker_event_sender,
         };
 
         tracing::debug!("Router {} is created", id);
@@ -151,6 +155,13 @@ impl Router {
                     let _ = reply_sender.send(data);
                 }
                 RouterEvent::Closed => {
+                    let r = router.lock().await;
+                    if let Err(err) = r
+                        .worker_event_sender
+                        .send(WorkerEvent::RouterRemoved(r.id.clone()))
+                    {
+                        tracing::error!("Failed to send RouterRemoved event id={}: {}", r.id, err);
+                    }
                     break;
                 }
             }
@@ -236,7 +247,6 @@ impl Router {
 
     pub fn close(&self) {
         let _ = self.router_event_sender.send(RouterEvent::Closed);
-        // TODO: Remove router from worker
     }
 }
 

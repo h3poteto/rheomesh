@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 
 use crate::{
     config::{MediaConfig, WorkerConfig},
@@ -14,6 +14,7 @@ pub struct Worker {
     pub routers: HashMap<String, Arc<Mutex<Router>>>,
     relay_sender: Arc<RelaySender>,
     stop_sender: broadcast::Sender<bool>,
+    worker_event_sender: mpsc::UnboundedSender<WorkerEvent>,
 }
 
 impl Worker {
@@ -25,14 +26,23 @@ impl Worker {
             config.relay_server_udp_port,
         )
         .await?;
+        let (tx, rx) = mpsc::unbounded_channel::<WorkerEvent>();
 
         let worker = Self {
             routers: HashMap::new(),
             relay_sender: Arc::new(relay_sender),
             stop_sender: stop_sender.clone(),
+            worker_event_sender: tx,
         };
 
         let worker = Arc::new(Mutex::new(worker));
+
+        {
+            let worker = worker.clone();
+            tokio::spawn(async move {
+                Self::worker_event_loop(worker, rx).await;
+            });
+        }
 
         {
             let relay_server = RelayServer::new(
@@ -64,14 +74,38 @@ impl Worker {
     }
 
     pub fn new_router(&mut self, media_config: MediaConfig) -> Arc<Mutex<Router>> {
-        let (router, id) = Router::new(media_config, self.relay_sender.clone());
+        let (router, id) = Router::new(
+            media_config,
+            self.relay_sender.clone(),
+            self.worker_event_sender.clone(),
+        );
         self.routers.insert(id, router.clone());
         router
+    }
+
+    pub(crate) async fn worker_event_loop(
+        worker: Arc<Mutex<Worker>>,
+        mut event_receiver: mpsc::UnboundedReceiver<WorkerEvent>,
+    ) {
+        while let Some(event) = event_receiver.recv().await {
+            match event {
+                WorkerEvent::RouterRemoved(router_id) => {
+                    let mut guard = worker.lock().await;
+                    guard.routers.remove(&router_id);
+                }
+            }
+        }
+        tracing::debug!("Worker event loop finished");
     }
 
     pub fn close(&self) {
         let _ = self.stop_sender.send(true);
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum WorkerEvent {
+    RouterRemoved(String),
 }
 
 impl Drop for Worker {

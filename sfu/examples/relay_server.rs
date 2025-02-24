@@ -15,6 +15,7 @@ use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
@@ -81,7 +82,7 @@ async fn socket(
     match find {
         Some(room) => {
             tracing::info!("Room found, so joining it: {}", room_id);
-            let server = WebSocket::new(room).await;
+            let server = WebSocket::new(room, room_owner.clone()).await;
             ws::start(server, &req, stream)
         }
         None => {
@@ -95,7 +96,7 @@ async fn socket(
                     env::var("LOCAL_IP").unwrap(),
                 );
             }
-            let server = WebSocket::new(room).await;
+            let server = WebSocket::new(room, room_owner.clone()).await;
             ws::start(server, &req, stream)
         }
     }
@@ -116,6 +117,7 @@ fn get_pair_servers(room_id: String, my_ip: String) -> HashMap<String, String> {
 }
 
 struct WebSocket {
+    owner: Data<Mutex<RoomOwner>>,
     room: Arc<Room>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
@@ -126,7 +128,7 @@ struct WebSocket {
 
 impl WebSocket {
     // This function is called when a new user connect to this server.
-    pub async fn new(room: Arc<Room>) -> Self {
+    pub async fn new(room: Arc<Room>, owner: Data<Mutex<RoomOwner>>) -> Self {
         tracing::info!("Starting WebSocket");
         let r = room.router.clone();
         let router = r.lock().await;
@@ -148,6 +150,7 @@ impl WebSocket {
         let subscribe_transport = router.create_subscribe_transport(config).await;
         let client = redis::Client::open("redis://redis/").unwrap();
         Self {
+            owner,
             room,
             publish_transport: Arc::new(publish_transport),
             subscribe_transport: Arc::new(subscribe_transport),
@@ -182,7 +185,18 @@ impl Actor for WebSocket {
                 .await
                 .expect("failed to close publish_transport");
         });
-        self.room.remove_user(address);
+        let users = self.room.remove_user(address);
+        if users == 0 {
+            let owner = self.owner.clone();
+            let router = self.room.router.clone();
+            let room_id = self.room.id.clone();
+            actix::spawn(async move {
+                let mut owner = owner.lock().await;
+                owner.remove_room(room_id);
+                let router = router.lock().await;
+                router.close();
+            });
+        }
     }
 }
 
@@ -228,6 +242,47 @@ impl Handler<ReceivedMessage> for WebSocket {
                         }))
                         .await;
                 });
+
+                let redis_client = self.redis_client.clone();
+                let channel = format!("{}_join", self.room.id.clone());
+                let ip = env::var("LOCAL_IP").unwrap();
+                let publishers = self.publishers.clone();
+                let room_id = self.room.id.clone();
+                tokio::spawn(async move {
+                    let mut conn = redis_client.get_async_pubsub().await.unwrap();
+                    conn.subscribe(channel).await.unwrap();
+
+                    let mut stream = conn.on_message();
+                    while let Some(msg) = stream.next().await {
+                        let message = msg.get_payload::<String>().unwrap();
+                        let value: serde_json::Value = serde_json::from_str(&message).unwrap();
+                        let target_ip = value.get("ip").unwrap().as_str().unwrap();
+                        let target_router_id = value.get("router_id").unwrap().as_str().unwrap();
+                        if target_ip.to_string() != ip {
+                            tracing::debug!("subscriber added: {:#?}", value);
+                            let mut con = redis_client
+                                .get_multiplexed_async_connection()
+                                .await
+                                .unwrap();
+
+                            let guard = publishers.lock().await;
+                            for (track_id, publisher) in guard.iter() {
+                                let mut publisher = publisher.lock().await;
+                                let _ = publisher
+                                    .relay_to(target_ip.to_string(), target_router_id.to_string())
+                                    .await
+                                    .unwrap();
+                                let _ = con
+                                    .publish::<String, String, i64>(
+                                        room_id.clone(),
+                                        track_id.clone(),
+                                    )
+                                    .await
+                                    .unwrap();
+                            }
+                        }
+                    }
+                });
             }
             ReceivedMessage::SubscriberInit => {
                 let subscribe_transport = self.subscribe_transport.clone();
@@ -257,8 +312,31 @@ impl Handler<ReceivedMessage> for WebSocket {
                 }
 
                 let redis_client = self.redis_client.clone();
+                let channel = format!("{}_join", self.room.id.clone());
+                let router = self.room.router.clone();
+                let ip = env::var("LOCAL_IP").unwrap();
+                tokio::spawn(async move {
+                    let router = router.lock().await;
+                    let mut con = redis_client
+                        .get_multiplexed_async_connection()
+                        .await
+                        .unwrap();
+
+                    let json_value = json!({
+                        "ip": ip,
+                        "router_id": router.id
+                    });
+                    let json_string = serde_json::to_string(&json_value).unwrap();
+                    let _ = con
+                        .publish::<String, String, i64>(channel, json_string)
+                        .await
+                        .unwrap();
+                });
+
+                let redis_client = self.redis_client.clone();
                 let channel = self.room.id.clone();
                 let address = address.clone();
+                let publishers = self.publishers.clone();
                 tokio::spawn(async move {
                     let mut conn = redis_client.get_async_pubsub().await.unwrap();
                     conn.subscribe(channel).await.unwrap();
@@ -267,10 +345,13 @@ impl Handler<ReceivedMessage> for WebSocket {
                     while let Some(msg) = stream.next().await {
                         let publisher_id = msg.get_payload::<String>().unwrap();
                         tracing::info!("relayed publisher received id={}", publisher_id);
+                        let guard = publishers.lock().await;
 
-                        address.do_send(SendingMessage::Published {
-                            publisher_ids: vec![publisher_id],
-                        });
+                        if let None = guard.get(&publisher_id) {
+                            address.do_send(SendingMessage::Published {
+                                publisher_ids: vec![publisher_id],
+                            });
+                        }
                     }
                 });
             }
@@ -373,7 +454,6 @@ impl Handler<ReceivedMessage> for WebSocket {
                             for (ip, router_id) in servers {
                                 let mut publisher = publisher.lock().await;
                                 let _ = publisher.relay_to(ip, router_id.clone()).await.unwrap();
-
                                 let _ = con
                                     .publish::<String, String, i64>(
                                         channel.clone(),
@@ -542,6 +622,10 @@ impl RoomOwner {
         self.rooms.insert(id.clone(), a.clone());
         (a, router_id)
     }
+
+    fn remove_room(&mut self, room_id: String) {
+        self.rooms.remove(&room_id);
+    }
 }
 
 struct Room {
@@ -564,9 +648,10 @@ impl Room {
         users.push(user);
     }
 
-    pub fn remove_user(&self, user: Addr<WebSocket>) {
+    pub fn remove_user(&self, user: Addr<WebSocket>) -> usize {
         let mut users = self.users.lock().unwrap();
         users.retain(|u| u != &user);
+        users.len()
     }
 
     pub fn get_peers(&self, user: &Addr<WebSocket>) -> Vec<Addr<WebSocket>> {

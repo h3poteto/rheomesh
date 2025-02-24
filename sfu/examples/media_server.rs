@@ -85,20 +85,21 @@ async fn socket(
     match find {
         Some(room) => {
             tracing::info!("Room found, so joining it: {}", room_id);
-            let server = WebSocket::new(room).await;
+            let server = WebSocket::new(room, room_owner.clone()).await;
             ws::start(server, &req, stream)
         }
         None => {
             let owner = room_owner.clone();
             let mut owner = owner.lock().await;
             let room = owner.create_new_room(room_id.to_string(), config).await;
-            let server = WebSocket::new(room).await;
+            let server = WebSocket::new(room, room_owner.clone()).await;
             ws::start(server, &req, stream)
         }
     }
 }
 
 struct WebSocket {
+    owner: Data<Mutex<RoomOwner>>,
     room: Arc<Room>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
@@ -108,7 +109,7 @@ struct WebSocket {
 
 impl WebSocket {
     // This function is called when a new user connect to this server.
-    pub async fn new(room: Arc<Room>) -> Self {
+    pub async fn new(room: Arc<Room>, owner: Data<Mutex<RoomOwner>>) -> Self {
         tracing::info!("Starting WebSocket");
         let r = room.router.clone();
         let router = r.lock().await;
@@ -129,6 +130,7 @@ impl WebSocket {
         let publish_transport = router.create_publish_transport(config.clone()).await;
         let subscribe_transport = router.create_subscribe_transport(config).await;
         Self {
+            owner,
             room,
             publish_transport: Arc::new(publish_transport),
             subscribe_transport: Arc::new(subscribe_transport),
@@ -162,7 +164,18 @@ impl Actor for WebSocket {
                 .await
                 .expect("failed to close publish_transport");
         });
-        self.room.remove_user(address);
+        let users = self.room.remove_user(address);
+        if users == 0 {
+            let owner = self.owner.clone();
+            let router = self.room.router.clone();
+            let room_id = self.room.id.clone();
+            actix::spawn(async move {
+                let mut owner = owner.lock().await;
+                owner.remove_room(room_id);
+                let router = router.lock().await;
+                router.close();
+            });
+        }
     }
 }
 
@@ -474,18 +487,22 @@ impl RoomOwner {
         self.rooms.insert(id.clone(), a.clone());
         a
     }
+
+    fn remove_room(&mut self, room_id: String) {
+        self.rooms.remove(&room_id);
+    }
 }
 
 struct Room {
-    _id: String,
+    id: String,
     pub router: Arc<Mutex<rheomesh::router::Router>>,
     users: std::sync::Mutex<Vec<Addr<WebSocket>>>,
 }
 
 impl Room {
-    pub fn new(_id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
+    pub fn new(id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
         Self {
-            _id,
+            id,
             router,
             users: std::sync::Mutex::new(Vec::new()),
         }
@@ -496,9 +513,10 @@ impl Room {
         users.push(user);
     }
 
-    pub fn remove_user(&self, user: Addr<WebSocket>) {
+    pub fn remove_user(&self, user: Addr<WebSocket>) -> usize {
         let mut users = self.users.lock().unwrap();
         users.retain(|u| u != &user);
+        users.len()
     }
 
     pub fn get_peers(&self, user: &Addr<WebSocket>) -> Vec<Addr<WebSocket>> {
