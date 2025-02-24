@@ -344,10 +344,10 @@ impl Handler<ReceivedMessage> for WebSocket {
                     let mut stream = conn.on_message();
                     while let Some(msg) = stream.next().await {
                         let publisher_id = msg.get_payload::<String>().unwrap();
-                        tracing::info!("relayed publisher received id={}", publisher_id);
                         let guard = publishers.lock().await;
 
                         if let None = guard.get(&publisher_id) {
+                            tracing::info!("relayed publisher received id={}", publisher_id);
                             address.do_send(SendingMessage::Published {
                                 publisher_ids: vec![publisher_id],
                             });

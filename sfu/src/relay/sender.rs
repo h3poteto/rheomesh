@@ -72,6 +72,7 @@ impl RelaySender {
         if received == "ok" {
             Ok(true)
         } else {
+            tracing::warn!("{} returns unexpected response: {}", ip, received);
             Ok(false)
         }
     }

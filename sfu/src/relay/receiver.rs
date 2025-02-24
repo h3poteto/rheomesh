@@ -111,7 +111,6 @@ impl RelayServer {
                                         data.codec_capability.into(),
                                         data.stream_id,
                                     );
-                                    stream.write_all(b"ok").await?;
                                 } else {
                                     let publisher = RelayedPublisher::new(
                                         data.track_id.clone(),
