@@ -23,6 +23,7 @@ use crate::{
     publisher::PublisherType,
     router::{Router, RouterEvent},
     rtp::layer::Layer,
+    track::Track,
     transport,
 };
 
@@ -141,12 +142,26 @@ impl Subscriber {
         #[allow(unused)]
         let mut publisher_type = PublisherType::Simple;
         {
-            let publisher =
-                Router::find_publisher(self.router_event_sender.clone(), self.publisher_id.clone())
+            match Router::find_publisher(
+                self.router_event_sender.clone(),
+                self.publisher_id.clone(),
+            )
+            .await
+            {
+                Ok(publisher) => {
+                    let guard = publisher.lock().await;
+                    publisher_type = guard.publisher_type.clone();
+                }
+                Err(_) => {
+                    let publisher = Router::find_relayed_publisher(
+                        self.router_event_sender.clone(),
+                        self.publisher_id.clone(),
+                    )
                     .await?;
-
-            let guard = publisher.lock().await;
-            publisher_type = guard.publisher_type.clone();
+                    let guard = publisher.lock().await;
+                    publisher_type = guard.publisher_type.clone();
+                }
+            }
         }
         if publisher_type == PublisherType::Simulcast {
             self.change_rid(spatial_layer.into()).await?;
@@ -163,26 +178,45 @@ impl Subscriber {
         Ok(())
     }
 
-    async fn change_rid(&mut self, rid: RID) -> Result<(), Error> {
-        tracing::debug!("change_rid: {}", rid);
-        let local_track = Router::find_local_track(
+    async fn find_local_track(&self, rid: RID) -> Result<Arc<dyn Track>, Error> {
+        match Router::find_local_track(
             self.router_event_sender.clone(),
             self.publisher_id.clone(),
-            rid,
+            rid.clone(),
         )
-        .await?;
+        .await
+        {
+            Ok(track) => Ok(track),
+            Err(_) => {
+                match Router::find_relayed_track(
+                    self.router_event_sender.clone(),
+                    self.publisher_id.clone(),
+                    rid,
+                )
+                .await
+                {
+                    Ok(relayed_track) => Ok(relayed_track),
+                    Err(err) => Err(err),
+                }
+            }
+        }
+    }
 
-        if local_track.ssrc == self.media_ssrc {
+    async fn change_rid(&mut self, rid: RID) -> Result<(), Error> {
+        tracing::debug!("change_rid: {}", rid);
+        let local_track = self.find_local_track(rid).await?;
+
+        if local_track.ssrc() == self.media_ssrc {
             tracing::debug!("rid does not change");
             return Ok(());
         }
-        self.media_ssrc = local_track.ssrc;
+        self.media_ssrc = local_track.ssrc();
 
         {
             let id = self.id.clone();
-            let ssrc = local_track.ssrc.clone();
+            let ssrc = local_track.ssrc();
             let track_local = self.track_local.clone();
-            let rtp_sender = local_track.rtp_packet_sender.clone();
+            let rtp_sender = local_track.rtp_packet_sender();
             let replaced_sender = self.replaced_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();
             let rtp_lock = self.rtp_lock.clone();
@@ -209,7 +243,7 @@ impl Subscriber {
         }
         {
             let id = self.id.clone();
-            let ssrc = local_track.ssrc.clone();
+            let ssrc = local_track.ssrc();
             let rtcp_sender = self.rtcp_sender.clone();
             let replaced_sender = self.replaced_sender.clone();
             let publisher_rtcp_sender = self.publisher_rtcp_sender.clone();

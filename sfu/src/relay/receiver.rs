@@ -9,8 +9,11 @@ use tokio::{
 
 use crate::{
     error::Error,
-    relay::data::{PacketData, TrackData},
-    relay::relayed_publisher::RelayedPublisher,
+    relay::{
+        data::{PacketData, TrackData},
+        relayed_publisher::RelayedPublisher,
+    },
+    track::Track,
     worker::Worker,
 };
 
@@ -98,7 +101,8 @@ impl RelayServer {
 
                                 let mut publishers = self.publishers.lock().await;
                                 if let Some(publisher) = publishers.get(&data.track_id) {
-                                    let publisher = publisher.lock().await;
+                                    let mut publisher = publisher.lock().await;
+                                    publisher.publisher_type = data.publisher_type;
                                     publisher.create_relayed_track(
                                         data.track_id.clone(),
                                         data.ssrc,
@@ -109,7 +113,10 @@ impl RelayServer {
                                     );
                                     stream.write_all(b"ok").await?;
                                 } else {
-                                    let publisher = RelayedPublisher::new(data.track_id.clone());
+                                    let publisher = RelayedPublisher::new(
+                                        data.track_id.clone(),
+                                        data.publisher_type,
+                                    );
                                     {
                                         let publisher = publisher.lock().await;
                                         publisher.create_relayed_track(
@@ -164,10 +171,10 @@ impl RelayServer {
             if let Some(publisher) = publishers.get(&packet_data.track_id) {
                 let publisher = publisher.lock().await;
                 if let Some(track) = publisher.local_tracks.get(&packet_data.ssrc) {
-                    if track.rtp_packet_sender.receiver_count() > 0 {
-                        if let Err(err) = track
-                            .rtp_packet_sender
-                            .send((packet_data.packet, packet_data.layer))
+                    let rtp_packet_sender = track.rtp_packet_sender();
+                    if rtp_packet_sender.receiver_count() > 0 {
+                        if let Err(err) =
+                            rtp_packet_sender.send((packet_data.packet, packet_data.layer))
                         {
                             tracing::error!(
                                 "RelayedTrack id={} ssrc={} failed to send rtp: {}",

@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 
 #[derive(Debug, Clone)]
-pub(crate) struct Layer {
+pub struct Layer {
     pub temporal_id: u8,
     pub spatial_id: u8,
 }

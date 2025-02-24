@@ -14,20 +14,21 @@ use webrtc::{
 use crate::publisher::PublisherEvent;
 use crate::rtp::dependency_descriptor::DependencyDescriptorParser;
 use crate::rtp::layer::Layer;
+use crate::track::Track;
 use crate::transport;
 
 #[derive(Debug)]
 pub struct LocalTrack {
     /// The ID is the same as published track_id.
-    pub id: String,
-    pub ssrc: u32,
-    pub rid: String,
-    pub track: Arc<TrackRemote>,
+    id: String,
+    ssrc: u32,
+    rid: String,
+    track: Arc<TrackRemote>,
     _rtp_receiver: Arc<RTCRtpReceiver>,
     _rtp_transceiver: Arc<RTCRtpTransceiver>,
-    pub(crate) rtcp_sender: Arc<transport::RtcpSender>,
+    rtcp_sender: Arc<transport::RtcpSender>,
     closed_sender: broadcast::Sender<bool>,
-    pub(crate) rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
+    rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
 }
 
 impl LocalTrack {
@@ -238,8 +239,42 @@ impl LocalTrack {
             rid
         );
     }
+}
 
-    pub(crate) async fn close(&self) {
+impl Track for LocalTrack {
+    fn rtcp_sender(&self) -> Arc<transport::RtcpSender> {
+        self.rtcp_sender.clone()
+    }
+
+    fn rtp_packet_sender(&self) -> broadcast::Sender<(rtp::packet::Packet, Layer)> {
+        self.rtp_packet_sender.clone()
+    }
+
+    fn mime_type(&self) -> String {
+        self.track.codec().capability.mime_type.clone()
+    }
+
+    fn capability(&self) -> webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability {
+        self.track.codec().capability
+    }
+
+    fn id(&self) -> String {
+        self.track.id()
+    }
+
+    fn stream_id(&self) -> String {
+        self.track.stream_id()
+    }
+
+    fn ssrc(&self) -> u32 {
+        self.track.ssrc()
+    }
+
+    fn rid(&self) -> String {
+        self.rid.clone()
+    }
+
+    fn close(&self) {
         self.closed_sender.send(true).unwrap();
     }
 }
