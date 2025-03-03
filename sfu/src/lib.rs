@@ -22,6 +22,7 @@ pub mod publish_transport;
 /// Audio and video methods for track.
 pub mod publisher;
 pub mod relay;
+mod replay_channel;
 /// Router is a module that determines which media to distribute to whom.
 pub mod router;
 pub mod rtp;

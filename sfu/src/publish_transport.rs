@@ -4,6 +4,7 @@ use crate::{
     error::{Error, PublisherErrorKind, TransportErrorKind},
     publisher::{Publisher, PublisherType},
     relay::sender::RelaySender,
+    replay_channel,
     router::RouterEvent,
     transport::{OnIceCandidateFn, OnTrackFn, PeerConnection, RtcpReceiver, RtcpSender, Transport},
 };
@@ -36,8 +37,8 @@ pub struct PublishTransport {
     pub id: String,
     peer_connection: Arc<RTCPeerConnection>,
     pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
-    published_sender: broadcast::Sender<Arc<Mutex<Publisher>>>,
-    published_receiver: Arc<Mutex<broadcast::Receiver<Arc<Mutex<Publisher>>>>>,
+    published_channel: Arc<replay_channel::ReplayChannel<Arc<Mutex<Publisher>>>>,
+    published_receiver: Arc<Mutex<mpsc::Receiver<Arc<Mutex<Publisher>>>>>,
     data_published_sender: broadcast::Sender<Arc<DataPublisher>>,
     data_published_receiver: Arc<Mutex<broadcast::Receiver<Arc<DataPublisher>>>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
@@ -66,7 +67,8 @@ impl PublishTransport {
         let id = Uuid::new_v4().to_string();
         let (s, r) = mpsc::unbounded_channel();
         let (stop_sender, stop_receiver) = mpsc::unbounded_channel();
-        let (published_sender, published_receiver) = broadcast::channel(1024);
+        let (published_channel, published_receiver) =
+            replay_channel::ReplayChannel::<Arc<Mutex<Publisher>>>::new(65535);
         let (data_published_sender, data_published_receiver) = broadcast::channel(1024);
 
         let peer_connection = Self::generate_peer_connection(media_config, transport_config)
@@ -77,7 +79,7 @@ impl PublishTransport {
             id,
             peer_connection: Arc::new(peer_connection),
             router_event_sender,
-            published_sender,
+            published_channel: Arc::new(published_channel),
             published_receiver: Arc::new(Mutex::new(published_receiver)),
             data_published_sender,
             data_published_receiver: Arc::new(Mutex::new(data_published_receiver)),
@@ -111,8 +113,22 @@ impl PublishTransport {
     }
 
     pub async fn publish(&self, track_id: String) -> Result<Arc<Mutex<Publisher>>, Error> {
+        for publisher in self.published_channel.subscribe().await {
+            #[allow(unused)]
+            let mut published_track_id = "".to_owned();
+            {
+                let p = publisher.lock().await;
+                published_track_id = p.track_id.clone();
+            }
+            if published_track_id == track_id {
+                return Ok(publisher);
+            }
+        }
+
         let receiver = self.published_receiver.clone();
-        while let Ok(publisher) = receiver.lock().await.recv().await {
+        tracing::debug!("waiting receiver");
+        while let Some(publisher) = receiver.lock().await.recv().await {
+            tracing::debug!("receive publisher");
             #[allow(unused)]
             let mut published_track_id = "".to_owned();
             {
@@ -236,7 +252,7 @@ impl PublishTransport {
         let on_track = Arc::clone(&self.on_track_fn);
         let router_sender = self.router_event_sender.clone();
         let rtcp_sender = self.rtcp_sender_channel.clone();
-        let published_sender = self.published_sender.clone();
+        let published_sender = self.published_channel.clone();
         let publishers = self.publishers.clone();
         let relay_sender = self.relay_sender.clone();
         peer.on_track(Box::new(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender)
@@ -270,8 +286,8 @@ impl PublishTransport {
                             }
 
                             publishers.insert(id.clone(), publisher.clone());
-                            published_sender.send(publisher.clone()).expect("could not send published track id to publisher");
-                            router_sender.send(RouterEvent::MediaPublished(id, publisher)).expect("could not send router event");
+                            published_sender.send(publisher.clone()).await;
+                            let _ = router_sender.send(RouterEvent::MediaPublished(id, publisher)).expect("could not send router event");
                         }
                     }
 
