@@ -235,6 +235,7 @@ impl Publisher {
         tracing::debug!("Publisher {} event loop finished", id);
     }
 
+    /// Forwards the publisher to a specific router in a specific server specified by `ip`. A [`crate::relay::relayed_publisher::RelayedPublisher`] and [`crate::relay::relayed_track::RelayedTrack`] are created in the server after this method.
     pub async fn relay_to(&mut self, ip: String, router_id: String) -> Result<bool, Error> {
         for (ssrc, local_track) in self.local_tracks.iter() {
             let res = self

@@ -21,10 +21,12 @@ mod prober;
 pub mod publish_transport;
 /// Audio and video methods for track.
 pub mod publisher;
+/// Relay is a module that provides methods to transfer publishers to other servers.
 pub mod relay;
 mod replay_channel;
 /// Router is a module that determines which media to distribute to whom.
 pub mod router;
+/// RTP packet related module.
 pub mod rtp;
 /// [`webrtc::peer_connection::RTCPeerConnection`] methods for subscriber.
 pub mod subscribe_transport;
@@ -32,4 +34,5 @@ pub mod subscribe_transport;
 pub mod subscriber;
 pub mod track;
 pub mod transport;
+/// Worker is a module that manages multiple routers.
 pub mod worker;

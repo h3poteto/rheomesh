@@ -6,6 +6,7 @@ use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 
 use crate::{rtp::layer::Layer, transport};
 
+/// Track represent media track that can be subscribed.
 pub trait Track {
     fn rtcp_sender(&self) -> Arc<transport::RtcpSender>;
     fn rtp_packet_sender(&self) -> broadcast::Sender<(rtp::packet::Packet, Layer)>;

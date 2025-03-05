@@ -8,6 +8,7 @@ use crate::rtp::layer::Layer;
 use crate::track::Track;
 use crate::transport;
 
+/// Track that is received from another server.
 #[derive(Debug)]
 pub struct RelayedTrack {
     /// The ID is the same as published track_id.
