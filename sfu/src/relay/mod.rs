@@ -1,5 +1,7 @@
 mod data;
-pub mod receiver;
+pub(crate) mod receiver;
+/// Publisher that is received from another server.
 pub mod relayed_publisher;
+/// Track that is received from another server.
 pub mod relayed_track;
-pub mod sender;
+pub(crate) mod sender;

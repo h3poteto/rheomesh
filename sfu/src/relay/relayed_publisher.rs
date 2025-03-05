@@ -11,8 +11,10 @@ use crate::{
 
 use super::relayed_track::RelayedTrack;
 
+/// Publisher that is received from another server.
 #[derive(Debug)]
 pub struct RelayedPublisher {
+    /// The original track ID.
     pub track_id: String,
     pub(crate) local_tracks: HashMap<u32, Arc<RelayedTrack>>,
     publisher_event_sender: mpsc::UnboundedSender<RelayedPublisherEvent>,
