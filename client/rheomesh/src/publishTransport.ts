@@ -105,6 +105,30 @@ export class PublishTransport extends EventEmitter {
     return [channel, offer];
   }
 
+  public async restartIce(): Promise<RTCSessionDescriptionInit> {
+    while (this._signalingLock) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    this._signalingLock = true;
+    this._peerConnection.restartIce();
+    const option: RTCOfferOptions = Object.assign({}, offerOptions, {
+      iceRestart: true,
+    });
+    const init = await this._peerConnection.createOffer(option);
+    const offer = adjustExtmap(init);
+
+    await this._peerConnection.setLocalDescription(offer);
+
+    await this.waitForIceGatheringComplete(this._peerConnection);
+
+    const res = this._peerConnection.localDescription;
+    if (!res) {
+      throw new Error("empty localDescription");
+    }
+    return res;
+  }
+
   public close() {
     this._peerConnection.close();
   }

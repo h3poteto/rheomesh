@@ -196,6 +196,17 @@ export default function Room() {
     });
   };
 
+  const restart = async () => {
+    if (!publishTransport.current) return;
+    const offer = await publishTransport.current.restartIce();
+    ws.current!.send(
+      JSON.stringify({
+        action: "Offer",
+        sdp: offer,
+      }),
+    );
+  };
+
   const stop = async () => {
     localVideo?.getTracks().forEach((track) => {
       ws.current!.send(
@@ -279,6 +290,7 @@ export default function Room() {
           <option value="1">1</option>
           <option value="0">0</option>
         </select>
+        <button onClick={restart}>RestartICE</button>
         <button onClick={stop} disabled={!connected}>
           Stop
         </button>
