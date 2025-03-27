@@ -62,6 +62,8 @@ pub enum TransportErrorKind {
     SignalingStateInvalidError,
     #[error("extmap parse error")]
     ExtmapParseError,
+    #[error("ice restart error")]
+    ICERestartError,
 }
 
 #[derive(Debug, thiserror::Error)]

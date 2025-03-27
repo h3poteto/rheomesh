@@ -196,6 +196,35 @@ export default function Room() {
     });
   };
 
+  const restart = async () => {
+    await restartPublish();
+    await restartSubscribe();
+  };
+
+  const restartPublish = async () => {
+    if (!publishTransport.current) return;
+    try {
+      const offer = await publishTransport.current.restartIce();
+      ws.current!.send(
+        JSON.stringify({
+          action: "Offer",
+          sdp: offer,
+        }),
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const restartSubscribe = async () => {
+    if (!subscribeTransport.current) return;
+    ws.current!.send(
+      JSON.stringify({
+        action: "RestartICE",
+      }),
+    );
+  };
+
   const stop = async () => {
     localVideo?.getTracks().forEach((track) => {
       ws.current!.send(
@@ -279,6 +308,7 @@ export default function Room() {
           <option value="1">1</option>
           <option value="0">0</option>
         </select>
+        <button onClick={restart}>RestartICE</button>
         <button onClick={stop} disabled={!connected}>
           Stop
         </button>

@@ -29,7 +29,7 @@ use crate::subscriber::Subscriber;
 use crate::track::Track;
 use crate::transport::{OnIceCandidateFn, OnNegotiationNeededFn, PeerConnection, Transport};
 use crate::{
-    error::{Error, SubscriberErrorKind},
+    error::{Error, SubscriberErrorKind, TransportErrorKind},
     router::RouterEvent,
 };
 
@@ -183,7 +183,7 @@ impl SubscribeTransport {
             }
             None => Err(Error::new_transport(
                 "Failed to set local description".to_string(),
-                crate::error::TransportErrorKind::LocalDescriptionError,
+                TransportErrorKind::LocalDescriptionError,
             )),
         }
     }
@@ -301,6 +301,37 @@ impl SubscribeTransport {
         let _prober = Prober::new(dummy_track);
 
         Ok(())
+    }
+
+    pub async fn restart_ice(&self) -> Result<RTCSessionDescription, Error> {
+        tracing::debug!("subscriber restarting ice");
+        let state = self.peer_connection.connection_state();
+        if state == RTCPeerConnectionState::New || state == RTCPeerConnectionState::Closed {
+            return Err(Error::new_transport(
+                format!("Connection state is not correct: {}", state),
+                TransportErrorKind::ICERestartError,
+            ));
+        }
+        let _ = self.peer_connection.restart_ice().await?;
+
+        let mut options = self.offer_options.clone();
+        options.ice_restart = true;
+        let offer = self.peer_connection.create_offer(Some(options)).await?;
+
+        let mut gathering_complete = self.peer_connection.gathering_complete_promise().await;
+        self.peer_connection.set_local_description(offer).await?;
+        let _ = gathering_complete.recv().await;
+
+        match self.peer_connection.local_description().await {
+            Some(offer) => {
+                let offer = Self::adjust_extmap(offer)?;
+                Ok(offer)
+            }
+            None => Err(Error::new_transport(
+                "Failed to set local description".to_string(),
+                TransportErrorKind::LocalDescriptionError,
+            )),
+        }
     }
 
     async fn ice_state_hooks(&mut self) {
