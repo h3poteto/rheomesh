@@ -106,6 +106,15 @@ export class PublishTransport extends EventEmitter {
   }
 
   public async restartIce(): Promise<RTCSessionDescriptionInit> {
+    if (
+      this._peerConnection.connectionState === "new" ||
+      this._peerConnection.connectionState === "closed"
+    ) {
+      throw new Error(
+        `Connection state is ${this._peerConnection.connectionState}`,
+      );
+    }
+
     while (this._signalingLock) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

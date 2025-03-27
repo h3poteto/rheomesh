@@ -376,6 +376,19 @@ impl Handler<ReceivedMessage> for WebSocket {
                     }
                 });
             }
+            ReceivedMessage::RestartICE {} => {
+                let subscribe_transport = self.subscribe_transport.clone();
+                actix::spawn(async move {
+                    match subscribe_transport.restart_ice().await {
+                        Ok(offer) => {
+                            address.do_send(SendingMessage::Offer { sdp: offer });
+                        }
+                        Err(err) => {
+                            tracing::error!("Failed to restart ICE: {}", err);
+                        }
+                    }
+                });
+            }
         }
     }
 }
@@ -430,6 +443,8 @@ enum ReceivedMessage {
         sid: u8,
         tid: Option<u8>,
     },
+    #[serde(rename_all = "camelCase")]
+    RestartICE,
 }
 
 #[derive(Serialize, Message, Debug)]

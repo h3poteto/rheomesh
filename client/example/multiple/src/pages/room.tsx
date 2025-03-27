@@ -197,12 +197,30 @@ export default function Room() {
   };
 
   const restart = async () => {
+    await restartPublish();
+    await restartSubscribe();
+  };
+
+  const restartPublish = async () => {
     if (!publishTransport.current) return;
-    const offer = await publishTransport.current.restartIce();
+    try {
+      const offer = await publishTransport.current.restartIce();
+      ws.current!.send(
+        JSON.stringify({
+          action: "Offer",
+          sdp: offer,
+        }),
+      );
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const restartSubscribe = async () => {
+    if (!subscribeTransport.current) return;
     ws.current!.send(
       JSON.stringify({
-        action: "Offer",
-        sdp: offer,
+        action: "RestartICE",
       }),
     );
   };
