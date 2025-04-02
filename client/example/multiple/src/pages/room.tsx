@@ -286,16 +286,21 @@ export default function Room() {
     <div>
       <h1>Room: {room}</h1>
       <div>
-        <button onClick={connect} disabled={connected}>
+        <button id="connect" onClick={connect} disabled={connected}>
           Connect
         </button>
         <button
+          id="capture"
           onClick={capture}
           disabled={localVideo !== undefined || !connected}
         >
           Capture
         </button>
-        <button onClick={mic} disabled={localAudio !== undefined || !connected}>
+        <button
+          id="mic"
+          onClick={mic}
+          disabled={localAudio !== undefined || !connected}
+        >
           Mic
         </button>
         <select onChange={(e) => updateSid(parseInt(e.target.value))}>
@@ -308,8 +313,10 @@ export default function Room() {
           <option value="1">1</option>
           <option value="0">0</option>
         </select>
-        <button onClick={restart}>RestartICE</button>
-        <button onClick={stop} disabled={!connected}>
+        <button id="restart" onClick={restart}>
+          RestartICE
+        </button>
+        <button id="stop" onClick={stop} disabled={!connected}>
           Stop
         </button>
       </div>

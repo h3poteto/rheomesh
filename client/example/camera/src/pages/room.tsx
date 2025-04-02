@@ -251,16 +251,21 @@ export default function Room() {
     <div>
       <h1>Room: {room}</h1>
       <div>
-        <button onClick={connect} disabled={connected}>
+        <button id="connect" onClick={connect} disabled={connected}>
           Connect
         </button>
         <button
+          id="capture"
           onClick={camera}
           disabled={localVideo !== undefined || !connected}
         >
           Camera
         </button>
-        <button onClick={mic} disabled={localAudio !== undefined || !connected}>
+        <button
+          id="mic"
+          onClick={mic}
+          disabled={localAudio !== undefined || !connected}
+        >
           Mic
         </button>
         <select onChange={(e) => updateSid(parseInt(e.target.value))}>
@@ -273,12 +278,18 @@ export default function Room() {
           <option value="1">1</option>
           <option value="0">0</option>
         </select>
-        <button onClick={stop} disabled={!connected}>
+        <button id="stop" onClick={stop} disabled={!connected}>
           Stop
         </button>
       </div>
       <h3>My Screen</h3>
-      <video autoPlay muted ref={sendingVideoRef} width={480}></video>
+      <video
+        autoPlay
+        muted
+        id="sending-video"
+        ref={sendingVideoRef}
+        width={480}
+      ></video>
       <h3>Receving</h3>
       {Object.keys(recevingVideo).map((key) => (
         <div key={key}>
@@ -286,6 +297,7 @@ export default function Room() {
             <video
               id={key}
               muted
+              className="receving-video"
               autoPlay
               ref={(video) => {
                 if (video && recevingVideo[key]) {
@@ -305,6 +317,7 @@ export default function Room() {
             <audio
               id={key}
               autoPlay
+              className="receiving-audio"
               controls
               ref={(audio) => {
                 if (audio && recevingAudio[key]) {
