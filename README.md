@@ -1,5 +1,6 @@
 # Rheomesh
-[![Build](https://github.com/h3poteto/rheomesh/actions/workflows/build.yml/badge.svg)](https://github.com/h3poteto/rheomesh/actions/workflows/build.yml)
+[![E2E](https://github.com/h3poteto/rheomesh/actions/workflows/e2e.yml/badge.svg?branch=master)](https://github.com/h3poteto/rheomesh/actions/workflows/e2e.yml)
+[![Build](https://github.com/h3poteto/rheomesh/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/h3poteto/rheomesh/actions/workflows/build.yml)
 [![Crates.io](https://img.shields.io/crates/v/rheomesh)](https://crates.io/crates/rheomesh)
 [![NPM Version](https://img.shields.io/npm/v/rheomesh.svg)](https://www.npmjs.com/package/rheomesh)
 [![GitHub release](https://img.shields.io/github/release/h3poteto/rheomesh.svg)](https://github.com/h3poteto/rheomesh/releases)
