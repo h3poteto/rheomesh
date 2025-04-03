@@ -5,7 +5,7 @@ const config: PlaywrightTestConfig = {
   use: {
     locale: "en-US",
     permissions: ["microphone", "camera"],
-    headless: false,
+    headless: true,
     launchOptions: {
       args: [
         "--use-fake-ui-for-media-stream",
