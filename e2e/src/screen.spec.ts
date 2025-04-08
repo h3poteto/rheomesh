@@ -1,6 +1,6 @@
 import { test, chromium, expect } from "@playwright/test";
 
-test("Camera", async () => {
+test("Screen", async () => {
   const browser1 = await chromium.launch({
     args: [
       "--use-fake-ui-for-media-stream",

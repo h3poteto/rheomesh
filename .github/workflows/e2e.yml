@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  camera:
     env:
       CARGO_TEAM_COLOR: always
     runs-on: ubuntu-latest
@@ -47,4 +47,46 @@ jobs:
     - name: Test
       working-directory: ./e2e
       run: |
-        yarn test
+        yarn test src/camera.spec.ts
+
+  screen:
+    env:
+      CARGO_TEAM_COLOR: always
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: Build SFU
+      working-directory: ./sfu
+      run: cargo build --verbose
+    - name: Start server
+      working-directory: ./sfu
+      run: |
+        cargo build --example media_server
+        nohup target/debug/examples/media_server > server.log 2>&1 &
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+    - name: Build Client
+      working-directory: ./client
+      run: |
+        yarn install
+        yarn workspace rheomesh build
+    - name: Start client
+      working-directory: ./client
+      run: |
+        nohup yarn workspace multiple dev > client.log 2>&1 &
+
+    - name: Install dependencies
+      working-directory: ./e2e
+      run: |
+        yarn install
+        yarn playwright install
+    - name: Test
+      working-directory: ./e2e
+      run: |
+        yarn test src/screen.spec.ts
