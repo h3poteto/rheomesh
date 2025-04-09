@@ -61,5 +61,5 @@
     },
     "testEnvironment": "jsdom"
   },
-  "packageManager": "yarn@4.8.1"
+  "packageManager": "yarn@4.9.0"
 }
