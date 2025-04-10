@@ -297,7 +297,7 @@ export default function Room() {
             <video
               id={key}
               muted
-              className="receving-video"
+              className="receiving-video"
               autoPlay
               ref={(video) => {
                 if (video && recevingVideo[key]) {

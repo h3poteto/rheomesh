@@ -321,7 +321,13 @@ export default function Room() {
         </button>
       </div>
       <h3>My Screen</h3>
-      <video autoPlay muted ref={sendingVideoRef} width={480}></video>
+      <video
+        autoPlay
+        muted
+        id="sending-video"
+        ref={sendingVideoRef}
+        width={480}
+      ></video>
       <h3>Receving</h3>
       {Object.keys(recevingVideo).map((key) => (
         <div key={key}>
@@ -329,6 +335,7 @@ export default function Room() {
             <video
               id={key}
               muted
+              className="receiving-video"
               autoPlay
               ref={(video) => {
                 if (video && recevingVideo[key]) {
