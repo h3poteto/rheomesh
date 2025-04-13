@@ -1,10 +1,10 @@
 {
   "name": "rheomesh",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "WebRTC SFU client-side library for Rheomesh",
   "main": "./lib/index.js",
   "typings": "./lib/index.d.ts",
-  "type":"module",
+  "type": "module",
   "author": "h3poteto",
   "license": "Apache-2.0",
   "scripts": {
