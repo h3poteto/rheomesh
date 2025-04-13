@@ -9,25 +9,17 @@ repository = "https://github.com/h3poteto/rheomesh"
 homepage = "https://github.com/h3poteto/rheomesh"
 
 [dependencies]
-actix = "0.13.5"
-actix-web = "4.9.0"
-actix-web-actors = "4.3.1"
-bitvec = "1.0.1"
-bytes = "1.9.0"
-chrono = "0.4.38"
-derivative = "2.2.0"
-enclose = "1.2.0"
-futures-util = "0.3.31"
-rand = "0.8.5"
-serde = { version = "1.0.210", features = ["derive"]}
-serde_json = "1.0.128"
-strum = { version = "0.27.0", features = ["derive"]}
-strum_macros = "0.27.0"
-thiserror = "1.0.64"
-tokio = "1.38.0"
-tracing = "0.1.40"
-tracing-actix-web = "0.7.13"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+bitvec = "1.0"
+bytes = "1.9"
+derivative = "2.2"
+enclose = "1.2"
+serde = { version = "1.0", features = ["derive"]}
+serde_json = "1.0"
+strum = { version = "0.27", features = ["derive"]}
+strum_macros = "0.27"
+thiserror = "1.0"
+tokio = "1.38"
+tracing = "0.1"
 uuid = { version = "1.8", features = ["v4"] }
 webrtc = "0.12.0"
 webrtc-ice = "0.12.0"
@@ -36,4 +28,10 @@ webrtc-srtp = "0.14.0"
 webrtc-util = "0.10.0"
 
 [dev-dependencies]
-redis = { version = "0.29.0", features = ["aio", "tokio-comp"] }
+redis = { version = "0.29", features = ["aio", "tokio-comp"] }
+actix = "0.13"
+actix-web = "4.9"
+actix-web-actors = "4.3"
+tracing-actix-web = "0.7"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+futures-util = "0.3.31"
