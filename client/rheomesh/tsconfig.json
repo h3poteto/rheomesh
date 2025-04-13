@@ -19,7 +19,7 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "moduleResolution": "bundler",
+    "moduleResolution": "Node",
     "baseUrl": "./",
     "esModuleInterop": true,
     "paths": {
