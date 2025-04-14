@@ -1807,7 +1807,7 @@ dependencies = [
 
 [[package]]
 name = "rheomesh"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "actix",
  "actix-web",
