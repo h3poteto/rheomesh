@@ -10,6 +10,7 @@ jobs:
   camera:
     env:
       CARGO_TEAM_COLOR: always
+      PUBLIC_IP: 192.168.10.1
     runs-on: ubuntu-latest
 
     steps:
@@ -52,6 +53,7 @@ jobs:
   screen:
     env:
       CARGO_TEAM_COLOR: always
+      PUBLIC_IP: 192.168.10.1
     runs-on: ubuntu-latest
 
     steps:
