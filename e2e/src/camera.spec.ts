@@ -1,19 +1,26 @@
-import { test, chromium, expect } from "@playwright/test";
+import {
+  test as base,
+  chromium,
+  expect,
+  BrowserType,
+  firefox,
+} from "@playwright/test";
 
-test("Camera", async () => {
-  const browser1 = await chromium.launch({
-    args: [
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-    ],
-  });
+const browserTypes: { [key: string]: BrowserType } = {
+  chromium,
+  firefox,
+};
 
-  const browser2 = await chromium.launch({
-    args: [
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-    ],
-  });
+const test = base.extend<{ browserType: BrowserType }>({
+  browserType: async ({ browserName }, use) => {
+    await use(browserTypes[browserName]);
+  },
+});
+
+test("Camera", async ({ browserType }) => {
+  const browser1 = await browserType.launch({});
+
+  const browser2 = await browserType.launch({});
 
   const context1 = await browser1.newContext();
   const page1 = await context1.newPage();
@@ -23,6 +30,9 @@ test("Camera", async () => {
 
   await page1.goto("http://localhost:3000/room?room=example");
   await page2.goto("http://localhost:3000/room?room=example");
+
+  await page1.waitForSelector("#connect");
+  await page2.waitForSelector("#connect");
 
   await page1.click("#connect");
   await page2.click("#connect");
