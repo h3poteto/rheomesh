@@ -1,19 +1,26 @@
-import { test, chromium, expect } from "@playwright/test";
+import {
+  test as base,
+  chromium,
+  expect,
+  BrowserType,
+  firefox,
+} from "@playwright/test";
 
-test("Screen", async () => {
-  const browser1 = await chromium.launch({
-    args: [
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-    ],
-  });
+const browserTypes: { [key: string]: BrowserType } = {
+  chromium,
+  firefox,
+};
 
-  const browser2 = await chromium.launch({
-    args: [
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-    ],
-  });
+const test = base.extend<{ browserType: BrowserType }>({
+  browserType: async ({ browserName }, use) => {
+    await use(browserTypes[browserName]);
+  },
+});
+
+test("Screen", async ({ browserType }) => {
+  const browser1 = await browserType.launch({});
+
+  const browser2 = await browserType.launch({});
 
   const context1 = await browser1.newContext();
   const page1 = await context1.newPage();
@@ -104,12 +111,7 @@ test("Screen", async () => {
   expect(video2Time2).toBeGreaterThan(video2Time1);
 
   // Add browser3
-  const browser3 = await chromium.launch({
-    args: [
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-    ],
-  });
+  const browser3 = await browserType.launch({});
 
   const context3 = await browser3.newContext();
   const page3 = await context3.newPage();
