@@ -54,6 +54,7 @@ jobs:
     env:
       CARGO_TEAM_COLOR: always
       PUBLIC_IP: 192.168.10.1
+      DISPLAY: ":99"
     runs-on: ubuntu-latest
 
     steps:
@@ -61,6 +62,14 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+    - name: screen
+      # Currently, Firefox does not support media.navigator.streams.fake for getDisplayMedia.
+      # It supports only getUserMedia.
+      # So, we create fake screen on X server.
+      run: |
+        sudo apt-get install xvfb
+        Xvfb :99 -screen 0 1280x720x24 &
+
     - name: Build SFU
       working-directory: ./sfu
       run: cargo build --verbose
