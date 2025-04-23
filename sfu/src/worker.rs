@@ -9,6 +9,7 @@ use crate::{
     router::Router,
 };
 
+/// Worker is responsible for managing routers and relay servers.
 #[derive(Debug)]
 pub struct Worker {
     pub routers: HashMap<String, Arc<Mutex<Router>>>,
@@ -18,6 +19,7 @@ pub struct Worker {
 }
 
 impl Worker {
+    /// Creates a new worker with the given configuration. And starts the relay server.
     pub async fn new(config: WorkerConfig) -> Result<Arc<Mutex<Self>>, Error> {
         let (stop_sender, _rx) = broadcast::channel(1);
         let relay_sender = RelaySender::new(
@@ -73,6 +75,7 @@ impl Worker {
         Ok(worker)
     }
 
+    /// Creates a new router and adds it to the worker.
     pub fn new_router(&mut self, media_config: MediaConfig) -> Arc<Mutex<Router>> {
         let (router, id) = Router::new(
             media_config,
@@ -98,6 +101,7 @@ impl Worker {
         tracing::debug!("Worker event loop finished");
     }
 
+    /// Closes the worker and stops all routers.
     pub fn close(&self) {
         let _ = self.stop_sender.send(true);
     }
