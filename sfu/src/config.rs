@@ -237,3 +237,13 @@ pub struct WorkerConfig {
     pub relay_server_tcp_port: u16,
     pub relay_server_udp_port: u16,
 }
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        Self {
+            relay_sender_port: 9441,
+            relay_server_tcp_port: 9442,
+            relay_server_udp_port: 9443,
+        }
+    }
+}
