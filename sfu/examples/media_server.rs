@@ -34,13 +34,9 @@ async fn main() -> std::io::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig {
-        relay_sender_port: 9441,
-        relay_server_udp_port: 9442,
-        relay_server_tcp_port: 9443,
-    })
-    .await
-    .unwrap();
+    let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig::default())
+        .await
+        .unwrap();
     let room_owner = RoomOwner::new(worker);
     let room_data = Data::new(Mutex::new(room_owner));
 

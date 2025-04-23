@@ -16,17 +16,19 @@ rheomesh = { version = "0" }
 
 ## Usage
 ### Create router and transports
-First of all, please create a router. Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
+First of all, please create a worker and router. Worker accomodates multiple routers. You only need to launch one worker per server. Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
 
 ```rust
-use rheomesh::config::MediaConfig;
-use rheomesh::router::Router;
+use rheomesh::worker::Worker;
+use rheomesh::config::{WorkerConfig};
 
 //...
 
 async fn new() {
+  let worker = Worker::new(WorkerConfig::default()).await.unwrap();
   let config = MediaConfig::default();
-  let router = Router::new(config);
+  let mut w = worker.lock().await;
+  let router = w.new_router(config);
 }
 ```
 
