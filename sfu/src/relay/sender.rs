@@ -16,8 +16,11 @@ use super::data::RTCRtpCodecCapabilitySerializable;
 
 #[derive(Debug)]
 pub(crate) struct RelaySender {
+    /// UDP socket for sending RTP packets.
     socket: UdpSocket,
+    /// UDP port of the target relay server.
     server_udp_port: u16,
+    /// TCP port of the target relay server.
     server_tcp_port: u16,
 }
 

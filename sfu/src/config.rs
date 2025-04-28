@@ -202,6 +202,7 @@ pub(crate) fn find_extmap_order(uri: &str) -> Option<u16> {
         .map(|(k, _)| k)
 }
 
+/// The RID is used to identify the video quality in a simulcast.
 #[derive(Debug, Clone, strum::EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum RID {
@@ -231,10 +232,14 @@ impl From<u8> for RID {
     }
 }
 
+/// Configuration for [`crate::worker::Worker`]. This configuration contains the ports for the relay server and sender.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
+    /// UDP port for the relay sender. This is the port that the sender will use to send RTP packets to the relay server.
     pub relay_sender_port: u16,
+    /// TCP port for the relay server. This is the port that the relay server will use to receive TCP messages from the sender.
     pub relay_server_tcp_port: u16,
+    /// UDP port for the relay server. This is the port that the relay server will use to receive RTP packets from the sender.
     pub relay_server_udp_port: u16,
 }
 
