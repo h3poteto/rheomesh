@@ -44,8 +44,8 @@ async fn new() {
     urls: vec!["stun:stun.l.google.com:19302".to_owned()],
     ..Default::default()
   }];
-  let publish_transport = router.create_publish_transport(config.clone()).await;
-  let subscribe_transport = router.create_subscribe_transport(config.clone()).await;
+  let publish_transport = router.lock().await.create_publish_transport(config.clone()).await;
+  let subscribe_transport = router.lock().await.create_subscribe_transport(config.clone()).await;
 }
 ```
 
