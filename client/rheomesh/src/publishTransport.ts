@@ -206,7 +206,7 @@ export function adjustExtmap(
   return newSdp;
 }
 
-function findTrackId(
+export function findTrackId(
   sdp: RTCSessionDescriptionInit,
   mid: string,
 ): null | string {
