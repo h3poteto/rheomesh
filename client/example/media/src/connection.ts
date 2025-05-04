@@ -8,6 +8,7 @@ let remoteVideo: HTMLVideoElement;
 let remoteAudio: HTMLAudioElement;
 let localStreams: Array<MediaStream> = [];
 let subscriberIds: Array<string> = [];
+let publisherIds: Array<string> = [];
 
 let connectButton: HTMLButtonElement;
 let captureButton: HTMLButtonElement;
@@ -96,9 +97,11 @@ async function mic() {
 
 async function stop() {
   console.log("Stopping");
+  publisherIds.forEach((id) => {
+    ws.send(JSON.stringify({ action: "StopPublish", publisherId: id }));
+  });
   localStreams.forEach((stream) => {
     stream.getTracks().forEach((track) => {
-      ws.send(JSON.stringify({ action: "StopPublish", publisherId: track.id }));
       track.stop();
     });
   });
@@ -168,6 +171,7 @@ async function publish(stream: MediaStream) {
       }),
     );
     ws.send(JSON.stringify({ action: "Publish", publisherId: publisher.id }));
+    publisherIds.push(publisher.id);
   });
 }
 
