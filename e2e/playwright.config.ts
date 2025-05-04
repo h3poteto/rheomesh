@@ -2,6 +2,7 @@
 import { PlaywrightTestConfig } from "@playwright/test";
 
 const config: PlaywrightTestConfig = {
+  workers: 1,
   use: {
     locale: "en-US",
     headless: true,

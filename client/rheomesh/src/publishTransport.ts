@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import * as sdpTransform from "sdp-transform";
 import { findExtmapOrder } from "./config";
+import { Publisher } from "./publisher";
 
 const offerOptions: RTCOfferOptions = {
   offerToReceiveVideo: false,
@@ -49,7 +50,7 @@ export class PublishTransport extends EventEmitter {
   public async publish(
     track: MediaStreamTrack,
     encodings?: Array<RTCRtpEncodingParameters>,
-  ): Promise<RTCSessionDescriptionInit> {
+  ): Promise<Publisher> {
     while (this._signalingLock) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -63,7 +64,7 @@ export class PublishTransport extends EventEmitter {
         sendEncodings: encodings,
       });
     }
-    this._peerConnection.addTransceiver(track, options);
+    const transceiver = this._peerConnection.addTransceiver(track, options);
 
     const init = await this._peerConnection.createOffer(offerOptions);
     const offer = adjustExtmap(init);
@@ -77,7 +78,22 @@ export class PublishTransport extends EventEmitter {
     if (!res) {
       throw new Error("empty localDescription");
     }
-    return res;
+
+    if (!transceiver.mid) {
+      throw new Error("empty mid");
+    }
+    const mid = transceiver.mid;
+    const trackId = findTrackId(offer, mid!);
+    if (!trackId) {
+      throw new Error("empty trackId");
+    }
+
+    const publisher: Publisher = {
+      id: trackId,
+      offer: res,
+    };
+
+    return publisher;
   }
 
   public async setAnswer(answer: RTCSessionDescription): Promise<void> {
@@ -188,4 +204,32 @@ export function adjustExtmap(
   const str = sdpTransform.write(res);
   const newSdp = new RTCSessionDescription({ type: sdp.type, sdp: str });
   return newSdp;
+}
+
+export function findTrackId(
+  sdp: RTCSessionDescriptionInit,
+  mid: string,
+): null | string {
+  if (!sdp.sdp) {
+    console.error("empty sdp");
+    return null;
+  }
+  const res = sdpTransform.parse(sdp.sdp);
+  const media = res.media.find((m) => parseInt(m.mid!) == parseInt(mid));
+  if (!media) {
+    console.error("empty media");
+    return null;
+  }
+  if (!media.msid) {
+    console.error("empty msid");
+    return null;
+  }
+  const msid = media.msid;
+  const msidParts = msid.split(" ");
+  if (msidParts.length < 2) {
+    console.error("can't parse msid");
+    return null;
+  }
+  const trackId = msidParts[1];
+  return trackId;
 }

@@ -28,8 +28,8 @@ test("Camera", async ({ browserType }) => {
   const context2 = await browser2.newContext();
   const page2 = await context2.newPage();
 
-  await page1.goto("http://localhost:3000/room?room=example");
-  await page2.goto("http://localhost:3000/room?room=example");
+  await page1.goto("http://localhost:3000/room?room=example-camera");
+  await page2.goto("http://localhost:3000/room?room=example-camera");
 
   await page1.waitForSelector("#connect");
   await page2.waitForSelector("#connect");

@@ -121,20 +121,22 @@ export default function Room() {
               publisherId: publisherId,
             }),
           );
-          subscribeTransport.current!.subscribe(publisherId).then((track) => {
-            const stream = new MediaStream([track]);
-            if (track.kind === "audio") {
-              setRecevingAudio((prev) => ({
-                ...prev,
-                [publisherId]: stream,
-              }));
-            } else {
-              setRecevingVideo((prev) => ({
-                ...prev,
-                [publisherId]: stream,
-              }));
-            }
-          });
+          subscribeTransport
+            .current!.subscribe(publisherId)
+            .then((subscriber) => {
+              const stream = new MediaStream([subscriber.track]);
+              if (subscriber.track.kind === "audio") {
+                setRecevingAudio((prev) => ({
+                  ...prev,
+                  [publisherId]: stream,
+                }));
+              } else {
+                setRecevingVideo((prev) => ({
+                  ...prev,
+                  [publisherId]: stream,
+                }));
+              }
+            });
         });
 
         break;
@@ -174,18 +176,18 @@ export default function Room() {
 
   const publish = async (stream: MediaStream) => {
     stream.getTracks().forEach(async (track) => {
-      const offer = await publishTransport.current!.publish(
+      const publisher = await publishTransport.current!.publish(
         track,
         SVCEncodings(),
       );
       ws.current!.send(
         JSON.stringify({
           action: "Offer",
-          sdp: offer,
+          sdp: publisher.offer,
         }),
       );
       ws.current!.send(
-        JSON.stringify({ action: "Publish", trackId: track.id }),
+        JSON.stringify({ action: "Publish", publisherId: publisher.id }),
       );
     });
   };
