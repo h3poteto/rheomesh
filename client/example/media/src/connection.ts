@@ -160,14 +160,14 @@ function startSubscribePeer() {
 
 async function publish(stream: MediaStream) {
   stream.getTracks().forEach(async (track) => {
-    const offer = await publishTransport.publish(track);
+    const publisher = await publishTransport.publish(track);
     ws.send(
       JSON.stringify({
         action: "Offer",
-        sdp: offer,
+        sdp: publisher.offer,
       }),
     );
-    ws.send(JSON.stringify({ action: "Publish", trackId: track.id }));
+    ws.send(JSON.stringify({ action: "Publish", publisherId: publisher.id }));
   });
 }
 
@@ -197,9 +197,9 @@ function messageHandler(event: MessageEvent) {
             publisherId: publisherId,
           }),
         );
-        subscribeTransport.subscribe(publisherId).then((track) => {
-          const stream = new MediaStream([track]);
-          if (track.kind === "audio") {
+        subscribeTransport.subscribe(publisherId).then((subscriber) => {
+          const stream = new MediaStream([subscriber.track]);
+          if (subscriber.track.kind === "audio") {
             remoteAudio.srcObject = stream;
           } else {
             remoteVideo.srcObject = stream;

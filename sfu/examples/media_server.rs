@@ -278,14 +278,12 @@ impl Handler<ReceivedMessage> for WebSocket {
                     address.do_send(SendingMessage::Answer { sdp: answer });
                 });
             }
-            ReceivedMessage::Subscribe {
-                publisher_id: track_id,
-            } => {
+            ReceivedMessage::Subscribe { publisher_id } => {
                 let subscribe_transport = self.subscribe_transport.clone();
                 let subscribers = self.subscribers.clone();
                 actix::spawn(async move {
                     let (subscriber, offer) = subscribe_transport
-                        .subscribe(track_id)
+                        .subscribe(publisher_id)
                         .await
                         .expect("failed to connect subscribe_transport");
 
@@ -310,12 +308,12 @@ impl Handler<ReceivedMessage> for WebSocket {
                         .expect("failed to set answer");
                 });
             }
-            ReceivedMessage::Publish { track_id } => {
+            ReceivedMessage::Publish { publisher_id } => {
                 let room = self.room.clone();
                 let publish_transport = self.publish_transport.clone();
                 let publishers = self.publishers.clone();
                 actix::spawn(async move {
-                    match publish_transport.publish(track_id).await {
+                    match publish_transport.publish(publisher_id).await {
                         Ok(publisher) => {
                             #[allow(unused)]
                             let mut track_id = "".to_owned();
@@ -433,7 +431,7 @@ enum ReceivedMessage {
     #[serde(rename_all = "camelCase")]
     Answer { sdp: RTCSessionDescription },
     #[serde(rename_all = "camelCase")]
-    Publish { track_id: String },
+    Publish { publisher_id: String },
     #[serde(rename_all = "camelCase")]
     StopPublish { publisher_id: String },
     #[serde(rename_all = "camelCase")]

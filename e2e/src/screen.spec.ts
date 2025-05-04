@@ -28,8 +28,8 @@ test("Screen", async ({ browserType }) => {
   const context2 = await browser2.newContext();
   const page2 = await context2.newPage();
 
-  await page1.goto("http://localhost:3000/room?room=example");
-  await page2.goto("http://localhost:3000/room?room=example");
+  await page1.goto("http://localhost:3000/room?room=example-screen");
+  await page2.goto("http://localhost:3000/room?room=example-screen");
 
   await page1.click("#connect");
   await page2.click("#connect");
@@ -115,7 +115,7 @@ test("Screen", async ({ browserType }) => {
 
   const context3 = await browser3.newContext();
   const page3 = await context3.newPage();
-  await page3.goto("http://localhost:3000/room?room=example");
+  await page3.goto("http://localhost:3000/room?room=example-screen");
   await page3.click("#connect");
   await page3.waitForFunction(() => {
     const button = document.querySelector("#capture") as HTMLButtonElement;

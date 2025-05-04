@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import * as sdpTransform from "sdp-transform";
+import { Subscriber } from "./subscriber";
 
 export class SubscribeTransport extends EventEmitter {
   private _peerConnection: RTCPeerConnection;
@@ -115,11 +116,16 @@ export class SubscribeTransport extends EventEmitter {
     }
   }
 
-  public async subscribe(publisherId: string): Promise<MediaStreamTrack> {
+  public async subscribe(publisherId: string): Promise<Subscriber> {
     return new Promise(async (resolve, reject) => {
       for (let i = 0; i < 10; i++) {
         if (this._track[publisherId]) {
-          return resolve(this._track[publisherId]);
+          const track = this._track[publisherId];
+          const subscriber: Subscriber = {
+            publisherId: publisherId,
+            track: track,
+          };
+          return resolve(subscriber);
         }
         await sleep(500);
       }
