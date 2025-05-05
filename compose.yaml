@@ -36,6 +36,8 @@ services:
     working_dir: /etc/sfu
     environment:
       LOCAL_IP: sfu1
+      # Please override your local machine IP address.
+      PUBLIC_IP: 192.168.10.1
       RTC_MIN_PORT: 12000
       RTC_MAX_PORT: 12020
     command: cargo run --example relay_server
@@ -54,12 +56,15 @@ services:
     working_dir: /etc/sfu
     environment:
       LOCAL_IP: sfu2
+      # Please override your local machine IP address.
+      PUBLIC_IP: 192.168.10.1
       RTC_MIN_PORT: 13000
       RTC_MAX_PORT: 13020
     command: cargo run --example relay_server
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=0
       - net.ipv6.conf.default.disable_ipv6=0
+  # Redis is used to communicate sfu1 and sfu2.
   redis:
     image: redis:latest
     ports:

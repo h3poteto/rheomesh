@@ -103,6 +103,9 @@ async fn socket(
 }
 
 fn store_room(router_id: String, room_id: String, ip: String) {
+    // We are using redis to communicate between servers.
+    // When you create your own server, you can use any communication method you like.
+    // For example, WebSocket, gRPC, etc.
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
     let _: () = conn.hset(room_id, ip, router_id).unwrap();
