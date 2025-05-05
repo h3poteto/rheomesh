@@ -31,6 +31,7 @@ export default function Room() {
   const sendingVideoRef = useRef<HTMLVideoElement>(null);
   const publishTransport = useRef<PublishTransport>(null);
   const subscribeTransport = useRef<SubscribeTransport>(null);
+  const publishers = useRef<Array<string>>([]);
 
   useEffect(() => {
     if (router.query.room) {
@@ -195,6 +196,7 @@ export default function Room() {
       ws.current!.send(
         JSON.stringify({ action: "Publish", publisherId: publisher.id }),
       );
+      publishers.current.push(publisher.id);
     });
   };
 
@@ -228,17 +230,16 @@ export default function Room() {
   };
 
   const stop = async () => {
-    localVideo?.getTracks().forEach((track) => {
+    publishers.current.forEach((publisherId) => {
       ws.current!.send(
-        JSON.stringify({ action: "StopPublish", publisherId: track.id }),
+        JSON.stringify({ action: "StopPublish", publisherId: publisherId }),
       );
+    });
+    localVideo?.getTracks().forEach((track) => {
       track.stop();
     });
     setLocalVideo(undefined);
     localAudio?.getTracks().forEach((track) => {
-      ws.current!.send(
-        JSON.stringify({ action: "StopPublish", publisherId: track.id }),
-      );
       track.stop();
     });
     setLocalAudio(undefined);
