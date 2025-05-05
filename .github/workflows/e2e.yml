@@ -7,6 +7,49 @@ on:
   pull_request:
 
 jobs:
+  data:
+    env:
+      CARGO_TEAM_COLOR: always
+      PUBLIC_IP: 192.168.10.1
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: Build SFU
+      working-directory: ./sfu
+      run: cargo build --verbose
+    - name: Start server
+      working-directory: ./sfu
+      run: |
+        cargo build --example data_server
+        nohup target/debug/examples/data_server > server.log 2>&1 &
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+    - name: Build Client
+      working-directory: ./client
+      run: |
+        yarn install
+        yarn workspace rheomesh build
+    - name: Start client
+      working-directory: ./client
+      run: |
+        nohup yarn workspace data dev > client.log 2>&1 &
+
+    - name: Install dependencies
+      working-directory: ./e2e
+      run: |
+        yarn install
+        yarn playwright install
+    - name: Test
+      working-directory: ./e2e
+      run: |
+        yarn test src/data.spec.ts
+
   camera:
     env:
       CARGO_TEAM_COLOR: always
