@@ -112,7 +112,9 @@ impl PublishTransport {
         Ok(answer)
     }
 
-    pub async fn publish(&self, track_id: String) -> Result<Arc<Mutex<Publisher>>, Error> {
+    /// This starts publishing the track.
+    /// * `publisher_id` - The id of the publisher to be published. You can get it from the publisher object in client-side.
+    pub async fn publish(&self, publisher_id: String) -> Result<Arc<Mutex<Publisher>>, Error> {
         for publisher in self.published_channel.subscribe().await {
             #[allow(unused)]
             let mut published_track_id = "".to_owned();
@@ -120,7 +122,7 @@ impl PublishTransport {
                 let p = publisher.lock().await;
                 published_track_id = p.track_id.clone();
             }
-            if published_track_id == track_id {
+            if published_track_id == publisher_id {
                 return Ok(publisher);
             }
         }
@@ -135,7 +137,7 @@ impl PublishTransport {
                 let p = publisher.lock().await;
                 published_track_id = p.track_id.clone();
             }
-            if published_track_id == track_id {
+            if published_track_id == publisher_id {
                 return Ok(publisher);
             }
         }
@@ -145,6 +147,8 @@ impl PublishTransport {
         ))
     }
 
+    /// This starts publishing the data channel.
+    /// * `label` - The label of the data channel to be published. You can get it from the data channel object in client-side.
     pub async fn data_publish(&self, label: String) -> Result<Arc<DataPublisher>, Error> {
         let receiver = self.data_published_receiver.clone();
         while let Ok(data_publisher) = receiver.lock().await.recv().await {
