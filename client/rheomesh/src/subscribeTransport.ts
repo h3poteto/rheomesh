@@ -1,6 +1,6 @@
 import { EventEmitter } from "events";
 import * as sdpTransform from "sdp-transform";
-import { Subscriber } from "./subscriber";
+import { DataSubscriber, Subscriber } from "./subscriber";
 
 export class SubscribeTransport extends EventEmitter {
   private _peerConnection: RTCPeerConnection;
@@ -133,11 +133,15 @@ export class SubscribeTransport extends EventEmitter {
     });
   }
 
-  public async subscribeData(publisherId: string): Promise<RTCDataChannel> {
+  public async subscribeData(publisherId: string): Promise<DataSubscriber> {
     return new Promise(async (resolve, reject) => {
       for (let i = 0; i < 10; i++) {
         if (this._channel[publisherId]) {
-          return resolve(this._channel[publisherId]);
+          const subscriber: DataSubscriber = {
+            publisherId: publisherId,
+            channel: this._channel[publisherId],
+          };
+          return resolve(subscriber);
         }
         await sleep(500);
       }
