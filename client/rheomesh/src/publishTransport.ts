@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 import * as sdpTransform from "sdp-transform";
 import { findExtmapOrder } from "./config";
-import { Publisher } from "./publisher";
+import { DataPublisher, Publisher } from "./publisher";
 
 const offerOptions: RTCOfferOptions = {
   offerToReceiveVideo: false,
@@ -104,9 +104,7 @@ export class PublishTransport extends EventEmitter {
     await this._peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
   }
 
-  public async publishData(): Promise<
-    [RTCDataChannel, RTCSessionDescriptionInit]
-  > {
+  public async publishData(): Promise<DataPublisher> {
     const label = crypto.randomUUID();
     const channel = this._peerConnection.createDataChannel(label, {
       ordered: true,
@@ -118,7 +116,13 @@ export class PublishTransport extends EventEmitter {
     const offer = await this._peerConnection.createOffer(offerOptions);
     await this._peerConnection.setLocalDescription(offer);
 
-    return [channel, offer];
+    const publisher: DataPublisher = {
+      id: label,
+      channel: channel,
+      offer: offer,
+    };
+
+    return publisher;
   }
 
   public async restartIce(): Promise<RTCSessionDescriptionInit> {

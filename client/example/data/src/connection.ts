@@ -120,16 +120,16 @@ function startSubscribePeer() {
 }
 
 async function publish() {
-  const [channel, offer] = await publishTransport.publishData();
-  publishedChannel = channel;
+  const publisher = await publishTransport.publishData();
+  publishedChannel = publisher.channel;
   ws.send(
     JSON.stringify({
       action: "Offer",
-      sdp: offer,
+      sdp: publisher.offer,
     }),
   );
-  channel.onopen = (_ev) => {
-    ws.send(JSON.stringify({ action: "Publish", label: channel.label }));
+  publisher.channel.onopen = (_ev) => {
+    ws.send(JSON.stringify({ action: "Publish", label: publisher.id }));
   };
 }
 
@@ -161,9 +161,11 @@ function messageHandler(event: MessageEvent) {
           publisherId: message.publisherId,
         }),
       );
-      subscribeTransport.subscribeData(message.publisherId).then((channel) => {
-        channel.onmessage = ondata;
-      });
+      subscribeTransport
+        .subscribeData(message.publisherId)
+        .then((subscriber) => {
+          subscriber.channel.onmessage = ondata;
+        });
       break;
     case "Subscribed":
       subscriberId = message.subscriberId;
@@ -180,6 +182,13 @@ function messageHandler(event: MessageEvent) {
 
 function ondata(ev: MessageEvent) {
   console.log("ondata", ev);
-  const text = new TextDecoder().decode(ev.data);
-  remoteText.innerText = text;
+  if (ev.data instanceof Blob) {
+    ev.data.arrayBuffer().then((buffer) => {
+      const text = new TextDecoder().decode(buffer);
+      remoteText.innerText = text;
+    });
+  } else {
+    const text = new TextDecoder().decode(ev.data);
+    remoteText.innerText = text;
+  }
 }

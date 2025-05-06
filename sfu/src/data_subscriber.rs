@@ -32,7 +32,7 @@ impl DataSubscriber {
 
         tokio::spawn(async move {
             let receiver = data_sender.subscribe();
-
+            drop(data_sender);
             Self::data_event_loop(
                 data_publisher_id,
                 channel,
