@@ -80,7 +80,7 @@ test("Data", async ({ browserType }) => {
     const button = document.querySelector("#send") as HTMLButtonElement;
     return button && button.disabled === false;
   });
-  await page3.waitForTimeout(1000);
+  await page3.waitForTimeout(5000);
   await page3.fill("#data", "hello from page3");
   await page3.click("#send");
 
