@@ -35,15 +35,18 @@ test("Data", async ({ browserType }) => {
     const button = document.querySelector("#start") as HTMLButtonElement;
     return button && button.disabled === false;
   });
-  await page1.waitForTimeout(1000);
   await page1.click("#start");
+  await page1.waitForFunction(() => {
+    const button = document.querySelector("#send") as HTMLButtonElement;
+    return button && button.disabled === false;
+  });
 
   await page1.waitForTimeout(5000);
 
   await page1.fill("#data", "hello");
   await page1.click("#send");
 
-  await page2.waitForTimeout(5000);
+  await page2.waitForTimeout(1000);
 
   const text = await page2.$eval("#remote_data", (el) => el.textContent);
   expect(text).toBe("hello");

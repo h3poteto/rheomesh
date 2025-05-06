@@ -40,7 +40,7 @@ async function connect() {
   ws.onopen = () => {
     console.log("Connected to server");
     connectButton.disabled = true;
-    sendButton.disabled = false;
+    sendButton.disabled = true;
     stopButton.disabled = false;
     startPublishPeer();
     startSubscribePeer();
@@ -73,7 +73,10 @@ async function send() {
 async function stop() {
   console.log("Stopping");
   ws.send(
-    JSON.stringify({ action: "StopPublish", publisherId: publishedChannel.id }),
+    JSON.stringify({
+      action: "StopPublish",
+      publisherId: publishedChannel.label,
+    }),
   );
   if (subscriberId) {
     ws.send(
@@ -131,6 +134,7 @@ async function publish() {
   publisher.channel.onopen = (_ev) => {
     ws.send(JSON.stringify({ action: "Publish", label: publisher.id }));
   };
+  sendButton.disabled = false;
 }
 
 function messageHandler(event: MessageEvent) {
