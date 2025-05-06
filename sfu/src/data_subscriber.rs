@@ -89,6 +89,7 @@ impl DataSubscriber {
                             match state {
                                 RTCDataChannelState::Open => {
                                     let data = res.data;
+                                    tracing::debug!("DataSubscriber {} received data: {:?}", id, data);
                                     let _ = data_channel.send(&data).await;
                                 }
                                 _ => {

@@ -50,4 +50,43 @@ test("Data", async ({ browserType }) => {
 
   const text = await page2.$eval("#remote_data", (el) => el.textContent);
   expect(text).toBe("hello");
+
+  const browser3 = await browserType.launch({});
+  const context3 = await browser3.newContext();
+  const page3 = await context3.newPage();
+  await page3.goto("http://localhost:5173/");
+  await page3.click("#connect");
+  await page3.waitForFunction(() => {
+    const button = document.querySelector("#start") as HTMLButtonElement;
+    return button && button.disabled === false;
+  });
+
+  await page3.waitForTimeout(5000);
+
+  // Receive data on page3
+  await page1.fill("#data", "hello from page1");
+  await page1.click("#send");
+
+  await page2.waitForTimeout(1000);
+
+  const text2 = await page2.$eval("#remote_data", (el) => el.textContent);
+  expect(text2).toBe("hello from page1");
+
+  const text3 = await page3.$eval("#remote_data", (el) => el.textContent);
+  expect(text3).toBe("hello from page1");
+
+  await page3.click("#start");
+  await page3.waitForFunction(() => {
+    const button = document.querySelector("#send") as HTMLButtonElement;
+    return button && button.disabled === false;
+  });
+  await page3.waitForTimeout(1000);
+  await page3.fill("#data", "hello from page3");
+  await page3.click("#send");
+
+  await page1.waitForTimeout(1000);
+  const text4 = await page1.$eval("#remote_data", (el) => el.textContent);
+  expect(text4).toBe("hello from page3");
+  const text5 = await page2.$eval("#remote_data", (el) => el.textContent);
+  expect(text5).toBe("hello from page3");
 });

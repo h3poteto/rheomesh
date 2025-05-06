@@ -18,6 +18,10 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+    - name: Disable IPv6
+      run: |
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+        sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
     - name: Build SFU
       working-directory: ./sfu
       run: cargo build --verbose
@@ -49,6 +53,10 @@ jobs:
       working-directory: ./e2e
       run: |
         yarn test src/data.spec.ts
+    - name: Logs
+      if: always()
+      run: |
+        cat sfu/server.log
 
   camera:
     env:
@@ -61,6 +69,10 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+    - name: Disable IPv6
+      run: |
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+        sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
     - name: Build SFU
       working-directory: ./sfu
       run: cargo build --verbose
@@ -92,6 +104,10 @@ jobs:
       working-directory: ./e2e
       run: |
         yarn test src/camera.spec.ts
+    - name: Logs
+      if: always()
+      run: |
+        cat sfu/server.log
 
   screen:
     env:
@@ -105,6 +121,10 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+    - name: Disable IPv6
+      run: |
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+        sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
     - name: screen
       # Currently, Firefox does not support media.navigator.streams.fake for getDisplayMedia.
       # It supports only getUserMedia.
@@ -144,3 +164,7 @@ jobs:
       working-directory: ./e2e
       run: |
         yarn test src/screen.spec.ts
+    - name: Logs
+      if: always()
+      run: |
+        cat sfu/server.log
