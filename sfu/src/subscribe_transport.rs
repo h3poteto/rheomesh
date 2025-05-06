@@ -303,6 +303,7 @@ impl SubscribeTransport {
         Ok(())
     }
 
+    /// This restarts ICE negotiation and returns a new offer sdp.
     pub async fn restart_ice(&self) -> Result<RTCSessionDescription, Error> {
         tracing::debug!("subscriber restarting ice");
         let state = self.peer_connection.connection_state();
