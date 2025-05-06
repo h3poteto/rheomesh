@@ -38,7 +38,7 @@ test("Data", async ({ browserType }) => {
   await page1.waitForTimeout(1000);
   await page1.click("#start");
 
-  await page1.waitForTimeout(1000);
+  await page1.waitForTimeout(5000);
 
   await page1.fill("#data", "hello");
   await page1.click("#send");
