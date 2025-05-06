@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use derivative::Derivative;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, watch, Mutex};
 use uuid::Uuid;
 use webrtc::data_channel::{
     data_channel_message::DataChannelMessage, data_channel_state::RTCDataChannelState,
@@ -22,7 +22,7 @@ impl DataSubscriber {
         data_publisher_id: String,
         data_channel: Arc<RTCDataChannel>,
         data_sender: broadcast::Sender<DataChannelMessage>,
-        transport_closed: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
+        transport_closed: watch::Receiver<bool>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -30,18 +30,23 @@ impl DataSubscriber {
 
         let channel = data_channel.clone();
 
-        tokio::spawn(async move {
-            let receiver = data_sender.subscribe();
-            drop(data_sender);
-            Self::data_event_loop(
-                data_publisher_id,
-                channel,
-                receiver,
-                transport_closed,
-                closed_receiver,
-            )
-            .await;
-        });
+        {
+            let id = id.clone();
+            tokio::spawn(async move {
+                let receiver = data_sender.subscribe();
+                drop(data_sender);
+                Self::data_event_loop(
+                    id,
+                    data_publisher_id,
+                    channel.clone(),
+                    receiver,
+                    transport_closed,
+                    closed_receiver,
+                )
+                .await;
+                let _ = channel.close().await;
+            });
+        }
 
         Self {
             id,
@@ -51,23 +56,28 @@ impl DataSubscriber {
     }
 
     pub(crate) async fn data_event_loop(
+        id: String,
         source_channel_id: String,
         data_channel: Arc<RTCDataChannel>,
         mut data_receiver: broadcast::Receiver<DataChannelMessage>,
-        transport_closed: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
+        mut transport_closed: watch::Receiver<bool>,
         subscriber_closed: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
     ) {
         tracing::debug!(
-            "DataSubscriber event loop has started for {}",
+            "DataSubscriber {} event loop has started for {}",
+            id,
             source_channel_id
         );
 
         loop {
-            let mut transport_closed = transport_closed.lock().await;
             let mut subscriber_closed = subscriber_closed.lock().await;
             tokio::select! {
-                _closed = transport_closed.recv() => {
-                    break;
+                _closed = transport_closed.changed() => {
+                    let closed = transport_closed.borrow();
+                    if *closed {
+                        tracing::debug!("Transport is closed, exiting event loop for {}", id);
+                        break;
+                    }
                 }
                 _closed = subscriber_closed.recv() => {
                     break;
@@ -79,6 +89,7 @@ impl DataSubscriber {
                             match state {
                                 RTCDataChannelState::Open => {
                                     let data = res.data;
+                                    tracing::debug!("DataSubscriber {} received data: {:?}", id, data);
                                     let _ = data_channel.send(&data).await;
                                 }
                                 _ => {
@@ -87,7 +98,7 @@ impl DataSubscriber {
                             }
                         }
                         Err(err) => {
-                            tracing::error!("DataSubscriber failed to receive data: {}", err);
+                            tracing::error!("DataSubscriber {} failed to receive data: {}", id, err);
                             break;
                         }
                     }
@@ -96,7 +107,8 @@ impl DataSubscriber {
         }
 
         tracing::debug!(
-            "DataSubscriber event loop has finished for {}",
+            "DataSubscriber {} event loop has finished for {}",
+            id,
             source_channel_id
         );
     }

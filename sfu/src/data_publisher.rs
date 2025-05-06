@@ -45,7 +45,7 @@ impl DataPublisher {
         let (data_sender, _data_receiver) = broadcast::channel(1024);
         let sender = data_sender.clone();
         data_channel.on_message(Box::new(move |msg| {
-            tracing::trace!("message: {:#?}", msg.data);
+            tracing::debug!("message: {:#?}", msg.data);
             let data_sender = sender.clone();
             Box::pin(async move {
                 let _ = data_sender.send(msg);

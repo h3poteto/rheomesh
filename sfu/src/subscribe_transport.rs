@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use derivative::Derivative;
 use enclose::enc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio::time::sleep;
 use uuid::Uuid;
 use webrtc::api::media_engine::MIME_TYPE_OPUS;
@@ -48,8 +48,8 @@ pub struct SubscribeTransport {
     #[derivative(Debug = "ignore")]
     on_negotiation_needed_fn: Arc<Mutex<OnNegotiationNeededFn>>,
     // rtp event
-    closed_sender: Arc<mpsc::UnboundedSender<bool>>,
-    closed_receiver: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
+    closed_sender: watch::Sender<bool>,
+    closed_receiver: watch::Receiver<bool>,
     signaling_pending: Arc<AtomicBool>,
 }
 
@@ -65,7 +65,7 @@ impl SubscribeTransport {
             .await
             .unwrap();
 
-        let (closed_sender, closed_receiver) = mpsc::unbounded_channel();
+        let (closed_sender, closed_receiver) = watch::channel(false);
 
         let mut transport = Self {
             id,
@@ -78,8 +78,8 @@ impl SubscribeTransport {
             pending_candidates: Arc::new(Mutex::new(Vec::new())),
             on_ice_candidate_fn: Arc::new(Mutex::new(Box::new(|_| {}))),
             on_negotiation_needed_fn: Arc::new(Mutex::new(Box::new(|_| {}))),
-            closed_sender: Arc::new(closed_sender),
-            closed_receiver: Arc::new(Mutex::new(closed_receiver)),
+            closed_sender,
+            closed_receiver,
             signaling_pending: Arc::new(AtomicBool::new(false)),
         };
 
