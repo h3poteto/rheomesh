@@ -53,8 +53,12 @@ const stream = await navigator.mediaDevices.getDisplayMedia({
   video: true,
   audio: false,
 })
-const offer = await publishTransport.publish(stream)
-// Send `offer` to server. The server have to call `get_answer` method with this parameter.
+stream.getTracks().forEach(async (track) => {
+  const publisher = await publishTransport.publish(track)
+  const offer = publisher.offer
+  // Send `offer` to server. The server have to call `get_answer` method with this parameter.
+})
+
 ```
 Please send `offer` to server. The corresponding server-side handler is [here](/sfu/README.md#handle-offer-message).
 
@@ -91,8 +95,8 @@ Please send `answer` to server. The corresponding server-side handler is [here](
 
 #### Subscribe
 ```typescript
-subscribeTransport.subscribe(publisherId).then((track) => {
-  const stream = new MediaStream([track])
+subscribeTransport.subscribe(publisherId).then((subscriber) => {
+  const stream = new MediaStream([subscriber.track])
   remoteVideo.srcObject = stream
 });
 ```

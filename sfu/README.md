@@ -82,9 +82,9 @@ let answer = publish_transport
 Please send `answer` to client. The corresponding client-side handler is [here](https://github.com/h3poteto/rheomesh/blob/master/client/README.md#handle-answer-message).
 
 #### Publish
-Finally, please handle publish event with `track_id`.
+Finally, please handle publish event with `publisher_id`. You can obtain `publisher_id` from `publisher` object in client-side.
 ```rust
-let publisher = publish_transport.publish(track_id).await;
+let publisher = publish_transport.publish(publisher_id).await;
 ```
 
 ### Handle subscribe events
