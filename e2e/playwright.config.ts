@@ -31,6 +31,7 @@ const config: PlaywrightTestConfig = {
           firefoxUserPrefs: {
             "media.navigator.streams.fake": true,
             "media.navigator.permission.disabled": true,
+            "media.peerconnection.ice.obfuscate_host_addresses": false,
           },
         },
       },
