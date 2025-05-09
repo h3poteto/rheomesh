@@ -12,6 +12,7 @@ jobs:
       CARGO_TEAM_COLOR: always
       PUBLIC_IP: 192.168.10.1
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
     - uses: actions/checkout@v4
@@ -63,6 +64,7 @@ jobs:
       CARGO_TEAM_COLOR: always
       PUBLIC_IP: 192.168.10.1
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
     - uses: actions/checkout@v4
@@ -115,6 +117,7 @@ jobs:
       PUBLIC_IP: 192.168.10.1
       DISPLAY: ":99"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
     - uses: actions/checkout@v4
@@ -168,3 +171,74 @@ jobs:
       if: always()
       run: |
         cat sfu/server.log
+
+  relay:
+    env:
+      DISPLAY: ":99"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Disable IPv6
+      run: |
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+        sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
+    - name: screen
+      # Currently, Firefox does not support media.navigator.streams.fake for getDisplayMedia.
+      # It supports only getUserMedia.
+      # So, we create fake screen on X server.
+      run: |
+        sudo apt-get install xvfb
+        Xvfb :99 -screen 0 1280x720x24 &
+    - name: docker
+      run: |
+        docker compose up -d
+        docker compose ps
+    - name: Wait for service to be ready
+      run: |
+        until curl -sSf http://localhost:3001 > /dev/null; do
+          echo "Waiting for 3001..."
+          sleep 2
+        done
+        until curl -sSf http://localhost:3002 > /dev/null; do
+          echo "Waiting for 3002..."
+          sleep 2
+        done
+        until curl -sSf http://localhost:4001 > /dev/null; do
+          echo "Waiting for 4001..."
+          sleep 2
+        done
+        until curl -sSf http://localhost:4002 > /dev/null; do
+          echo "Waiting for 4002..."
+          sleep 2
+        done
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+    - name: Install dependencies
+      working-directory: ./e2e
+      run: |
+        yarn install
+        yarn playwright install
+    - name: Test
+      working-directory: ./e2e
+      run: |
+        yarn test src/relay.spec.ts
+    - name: 3001
+      if: always()
+      run: |
+        docker compose logs frontend1
+    - name: 3002
+      if: always()
+      run: |
+        docker compose logs frontend2
+    - name: SFU1 Logs
+      if: always()
+      run: |
+        docker compose logs sfu1
+    - name: SFU2 Logs
+      if: always()
+      run: |
+        docker compose logs sfu2

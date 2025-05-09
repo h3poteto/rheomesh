@@ -5,7 +5,7 @@ services:
       - "3001:3000"
     volumes:
       - ./client:/etc/client
-      - node_modules:/etc/client/node_modules
+      - node_modules1:/etc/client/node_modules
       - next1:/etc/client/example/multiple/.next/
     working_dir: /etc/client
     environment:
@@ -17,7 +17,7 @@ services:
       - "3002:3000"
     volumes:
       - ./client:/etc/client
-      - node_modules:/etc/client/node_modules
+      - node_modules2:/etc/client/node_modules
       - next2:/etc/client/example/multiple/.next
     working_dir: /etc/client
     environment:
@@ -42,8 +42,8 @@ services:
       RTC_MAX_PORT: 12020
     command: cargo run --example relay_server
     sysctls:
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.default.disable_ipv6=0
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
   sfu2:
     image: rust:1.86.0-slim
     ports:
@@ -62,16 +62,18 @@ services:
       RTC_MAX_PORT: 13020
     command: cargo run --example relay_server
     sysctls:
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.default.disable_ipv6=0
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
   # Redis is used to communicate sfu1 and sfu2.
   redis:
     image: redis:latest
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "6379:6379"
 
 volumes:
   next1:
   next2:
-  node_modules:
+  node_modules1:
+  node_modules2:
   target:
