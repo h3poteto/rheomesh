@@ -33,6 +33,7 @@ pub struct Publisher {
     subscriber_event_sender: Vec<mpsc::UnboundedSender<SubscriberEvent>>,
     relay_sender: Arc<RelaySender>,
     relayed_targets: Vec<(String, String)>,
+    relayed_publishers: HashMap<u32, String>,
 }
 
 impl Publisher {
@@ -56,6 +57,7 @@ impl Publisher {
             subscriber_event_sender: vec![],
             relay_sender,
             relayed_targets: vec![],
+            relayed_publishers: HashMap::new(),
         };
         let publisher = Arc::new(Mutex::new(publisher));
         {
@@ -175,11 +177,15 @@ impl Publisher {
                         {
                             Ok(res) => {
                                 if res {
+                                    p.relayed_publishers.insert(ssrc, ip.clone());
                                     let rtp_packet_sender = local_track.rtp_packet_sender();
+                                    let event_sender = p.publisher_event_sender.clone();
                                     tokio::spawn(async move {
                                         let _ = relay_sender
                                             .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
                                             .await;
+                                        let _ = event_sender
+                                            .send(PublisherEvent::RTPSenderLoopClosed(ssrc));
                                     });
                                 }
                             }
@@ -204,6 +210,10 @@ impl Publisher {
                         (p.close_callback)(id.clone());
                         let _ = p.publisher_event_sender.send(PublisherEvent::Close);
                     }
+                }
+                PublisherEvent::RTPSenderLoopClosed(ssrc) => {
+                    let mut p = publisher.lock().await;
+                    p.relayed_publishers.remove(&ssrc);
                 }
                 PublisherEvent::Close => {
                     let p = publisher.lock().await;
@@ -256,15 +266,34 @@ impl Publisher {
                 return Ok(false);
             }
             let rtp_packet_sender = local_track.rtp_packet_sender();
-            let ssrc = ssrc.clone();
-            let ip = ip.clone();
-            let track_id = self.track_id.clone();
-            let relay_sender = self.relay_sender.clone();
-            tokio::spawn(async move {
-                let _ = relay_sender
-                    .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
-                    .await;
-            });
+
+            if let Some(_) = self.relayed_publishers.get(ssrc).and_then(|saved_ip| {
+                if *saved_ip == ip {
+                    Some(())
+                } else {
+                    None
+                }
+            }) {
+                tracing::info!(
+                    "Track trac_id={} ssrc={} already relayed to {}",
+                    self.track_id,
+                    ssrc,
+                    ip
+                );
+            } else {
+                let ssrc = ssrc.clone();
+                let ip = ip.clone();
+                let track_id = self.track_id.clone();
+                let relay_sender = self.relay_sender.clone();
+                let event_sender = self.publisher_event_sender.clone();
+                tokio::spawn(async move {
+                    let _ = relay_sender
+                        .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
+                        .await;
+                    let _ = event_sender.send(PublisherEvent::RTPSenderLoopClosed(ssrc));
+                });
+            }
+            self.relayed_publishers.insert(ssrc.clone(), ip.clone());
         }
 
         self.relayed_targets.push((ip, router_id));
@@ -276,6 +305,7 @@ impl Publisher {
 pub(crate) enum PublisherEvent {
     TrackAdded(u32, String, Arc<LocalTrack>),
     TrackRemoved(u32),
+    RTPSenderLoopClosed(u32),
     Close,
 }
 
