@@ -17,6 +17,7 @@ use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -108,7 +109,15 @@ fn store_room(router_id: String, room_id: String, ip: String) {
     // For example, WebSocket, gRPC, etc.
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
+    // hset overwrite the value if it exists.
     let _: () = conn.hset(room_id, ip, router_id).unwrap();
+}
+
+fn delete_room(room_id: String, ip: String) {
+    let client = redis::Client::open("redis://redis/").unwrap();
+    let mut conn = client.get_connection().unwrap();
+    // hdel delete the value if it exists.
+    let _: () = conn.hdel(room_id, ip).unwrap();
 }
 
 fn get_pair_servers(room_id: String, my_ip: String) -> HashMap<String, String> {
@@ -127,6 +136,7 @@ struct WebSocket {
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     subscribers: Arc<Mutex<HashMap<String, Arc<Mutex<Subscriber>>>>>,
     redis_client: redis::Client,
+    cancel: CancellationToken,
 }
 
 impl WebSocket {
@@ -156,6 +166,8 @@ impl WebSocket {
         let publish_transport = router.create_publish_transport(config.clone()).await;
         let subscribe_transport = router.create_subscribe_transport(config).await;
         let client = redis::Client::open("redis://redis/").unwrap();
+        let cancel = CancellationToken::new();
+
         Self {
             owner,
             room,
@@ -164,6 +176,7 @@ impl WebSocket {
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             redis_client: client,
+            cancel,
         }
     }
 }
@@ -179,6 +192,7 @@ impl Actor for WebSocket {
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
         tracing::info!("The WebSocket connection is stopped");
+        self.cancel.cancel();
         let address = ctx.address();
         let subscribe_transport = self.subscribe_transport.clone();
         let publish_transport = self.publish_transport.clone();
@@ -198,8 +212,9 @@ impl Actor for WebSocket {
             let router = self.room.router.clone();
             let room_id = self.room.id.clone();
             actix::spawn(async move {
+                delete_room(room_id.clone(), env::var("LOCAL_IP").unwrap());
                 let mut owner = owner.lock().await;
-                owner.remove_room(room_id);
+                owner.remove_room(room_id.clone());
                 let router = router.lock().await;
                 router.close();
             });
@@ -255,37 +270,56 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let ip = env::var("LOCAL_IP").unwrap();
                 let publishers = self.publishers.clone();
                 let room_id = self.room.id.clone();
+                let cancel_child = self.cancel.child_token();
                 tokio::spawn(async move {
                     let mut conn = redis_client.get_async_pubsub().await.unwrap();
                     conn.subscribe(channel).await.unwrap();
 
                     let mut stream = conn.on_message();
-                    while let Some(msg) = stream.next().await {
-                        let message = msg.get_payload::<String>().unwrap();
-                        let value: serde_json::Value = serde_json::from_str(&message).unwrap();
-                        let target_ip = value.get("ip").unwrap().as_str().unwrap();
-                        let target_router_id = value.get("router_id").unwrap().as_str().unwrap();
-                        if target_ip.to_string() != ip {
-                            tracing::debug!("subscriber added: {:#?}", value);
-                            let mut con = redis_client
-                                .get_multiplexed_async_connection()
-                                .await
-                                .unwrap();
+                    loop {
+                        tokio::select! {
+                            _ = cancel_child.cancelled() => {
+                                tracing::debug!("cancelled publisherInit");
+                                break;
+                            }
+                            Some(msg) = stream.next() => {
+                                let message = msg.get_payload::<String>().unwrap();
+                                let value: serde_json::Value = serde_json::from_str(&message).unwrap();
+                                let target_ip = value.get("ip").unwrap().as_str().unwrap();
+                                let target_router_id = value.get("router_id").unwrap().as_str().unwrap();
+                                if target_ip.to_string() != ip {
+                                    tracing::debug!("subscriber added: {:#?}", value);
+                                    let mut con = redis_client
+                                        .get_multiplexed_async_connection()
+                                        .await
+                                        .unwrap();
 
-                            let guard = publishers.lock().await;
-                            for (track_id, publisher) in guard.iter() {
-                                let mut publisher = publisher.lock().await;
-                                let _ = publisher
-                                    .relay_to(target_ip.to_string(), target_router_id.to_string())
-                                    .await
-                                    .unwrap();
-                                let _ = con
-                                    .publish::<String, String, i64>(
-                                        room_id.clone(),
-                                        track_id.clone(),
-                                    )
-                                    .await
-                                    .unwrap();
+                                    let guard = publishers.lock().await;
+                                    for (track_id, publisher) in guard.iter() {
+                                        let mut publisher = publisher.lock().await;
+                                        let res = publisher
+                                            .relay_to(target_ip.to_string(), target_router_id.to_string())
+                                            .await
+                                            .unwrap();
+                                        if !res {
+                                            tracing::error!("failed to relay publisher");
+                                            continue;
+                                        }
+                                        let _ = con
+                                            .publish::<String, String, i64>(
+                                                room_id.clone(),
+                                                track_id.clone(),
+                                            )
+                                            .await
+                                            .unwrap();
+                                        tracing::debug!(
+                                            "relayed publisher id={} to router={} in {}",
+                                            track_id,
+                                            target_router_id,
+                                            target_ip
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -344,20 +378,29 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let channel = self.room.id.clone();
                 let address = address.clone();
                 let publishers = self.publishers.clone();
+                let child_token = self.cancel.child_token();
                 tokio::spawn(async move {
                     let mut conn = redis_client.get_async_pubsub().await.unwrap();
                     conn.subscribe(channel).await.unwrap();
 
                     let mut stream = conn.on_message();
-                    while let Some(msg) = stream.next().await {
-                        let publisher_id = msg.get_payload::<String>().unwrap();
-                        let guard = publishers.lock().await;
+                    loop {
+                        tokio::select! {
+                            _ = child_token.cancelled() => {
+                                tracing::debug!("cancelled subscriberInit");
+                                break;
+                            }
+                            Some(msg) = stream.next() => {
+                                let publisher_id = msg.get_payload::<String>().unwrap();
+                                let guard = publishers.lock().await;
 
-                        if let None = guard.get(&publisher_id) {
-                            tracing::info!("relayed publisher received id={}", publisher_id);
-                            address.do_send(SendingMessage::Published {
-                                publisher_ids: vec![publisher_id],
-                            });
+                                if let None = guard.get(&publisher_id) {
+                                    tracing::info!("relayed publisher received id={}", publisher_id);
+                                    address.do_send(SendingMessage::Published {
+                                        publisher_ids: vec![publisher_id],
+                                    });
+                                }
+                            }
                         }
                     }
                 });
@@ -443,13 +486,15 @@ impl Handler<ReceivedMessage> for WebSocket {
                             // address.do_send(SendingMessage::Published {
                             //     track_id: id.clone(),
                             // });
-                            let mut p = publishers.lock().await;
-                            p.insert(track_id.clone(), publisher.clone());
-                            room.get_peers(&address).iter().for_each(|peer| {
-                                peer.do_send(SendingMessage::Published {
-                                    publisher_ids: vec![track_id.clone()],
+                            {
+                                let mut p = publishers.lock().await;
+                                p.insert(track_id.clone(), publisher.clone());
+                                room.get_peers(&address).iter().for_each(|peer| {
+                                    peer.do_send(SendingMessage::Published {
+                                        publisher_ids: vec![track_id.clone()],
+                                    });
                                 });
-                            });
+                            }
 
                             let servers = get_pair_servers(room_id, env::var("LOCAL_IP").unwrap());
                             let mut con = redis_client
