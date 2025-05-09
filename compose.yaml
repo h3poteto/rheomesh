@@ -5,7 +5,7 @@ services:
       - "3001:3000"
     volumes:
       - ./client:/etc/client
-      - node_modules:/etc/client/node_modules
+      - node_modules1:/etc/client/node_modules
       - next1:/etc/client/example/multiple/.next/
     working_dir: /etc/client
     environment:
@@ -17,7 +17,7 @@ services:
       - "3002:3000"
     volumes:
       - ./client:/etc/client
-      - node_modules:/etc/client/node_modules
+      - node_modules2:/etc/client/node_modules
       - next2:/etc/client/example/multiple/.next
     working_dir: /etc/client
     environment:
@@ -74,5 +74,6 @@ services:
 volumes:
   next1:
   next2:
-  node_modules:
+  node_modules1:
+  node_modules2:
   target:
