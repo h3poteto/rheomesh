@@ -79,102 +79,8 @@ impl RelayServer {
 
             match serde_json::from_slice::<TrackData>(&buffer[..n]) {
                 Ok(data) => {
-                    tracing::debug!("tcp stream received: {:#?}", data);
-                    let router_id = RouterId(data.router_id.clone());
-                    let publisher_id = PublisherId(data.track_id.clone());
-                    if data.closed {
-                        let locked = self.worker.lock().await;
-                        match locked.routers.get(&data.router_id) {
-                            Some(router) => {
-                                let mut router = router.lock().await;
-                                router.remove_relayd_publisher(&data.track_id).await;
-                            }
-                            None => {
-                                stream.write_all(b"not_found").await?;
-                                continue;
-                            }
-                        }
-                        {
-                            let mut publishers = self.publishers.lock().await;
-
-                            if let Some(router_publisher) = publishers.get(&publisher_id) {
-                                if let Some(publisher) = router_publisher.get(&router_id) {
-                                    let locked = publisher.lock().await;
-                                    locked.close();
-                                }
-                            }
-                            publishers.remove(&publisher_id);
-                        }
-                        stream.write_all(b"ok").await?;
-                    } else {
-                        let locked = self.worker.lock().await;
-                        match locked.routers.get(&data.router_id) {
-                            Some(router) => {
-                                tracing::debug!("router id={} is found", data.router_id);
-
-                                let mut publishers = self.publishers.lock().await;
-                                if let Some(publisher) = publishers
-                                    .get(&publisher_id)
-                                    .and_then(|p| p.get(&router_id))
-                                {
-                                    let mut publisher = publisher.lock().await;
-                                    publisher.publisher_type = data.publisher_type;
-                                    publisher.create_relayed_track(
-                                        data.track_id.clone(),
-                                        data.ssrc,
-                                        data.rid,
-                                        data.mime_type,
-                                        data.codec_capability.into(),
-                                        data.stream_id,
-                                    );
-                                } else {
-                                    let publisher = RelayedPublisher::new(
-                                        data.track_id.clone(),
-                                        data.publisher_type,
-                                    );
-                                    {
-                                        let publisher = publisher.lock().await;
-                                        publisher.create_relayed_track(
-                                            data.track_id.clone(),
-                                            data.ssrc,
-                                            data.rid,
-                                            data.mime_type,
-                                            data.codec_capability.into(),
-                                            data.stream_id,
-                                        );
-                                    }
-
-                                    {
-                                        let mut router = router.lock().await;
-                                        router
-                                            .add_relayed_publisher(
-                                                data.track_id.clone(),
-                                                publisher.clone(),
-                                            )
-                                            .await;
-                                    }
-
-                                    if let Some(router_publisher) =
-                                        publishers.get_mut(&publisher_id)
-                                    {
-                                        router_publisher
-                                            .insert(router_id.clone(), publisher.clone());
-                                    } else {
-                                        publishers.insert(
-                                            publisher_id.clone(),
-                                            HashMap::from([(router_id.clone(), publisher.clone())]),
-                                        );
-                                    }
-                                }
-
-                                stream.write_all(b"ok").await?;
-                            }
-                            None => {
-                                tracing::warn!("router id={} is not found", data.router_id);
-                                stream.write_all(b"not_found").await?;
-                            }
-                        }
-                    }
+                    let res = self.handle_tcp_message(data).await;
+                    stream.write_all(res.as_bytes()).await?;
                 }
                 Err(err) => {
                     tracing::error!("failed to parse tcp stream: {}", err);
@@ -184,6 +90,94 @@ impl RelayServer {
         }
 
         Ok(true)
+    }
+
+    async fn handle_tcp_message(&self, data: TrackData) -> &str {
+        tracing::debug!("tcp stream received: {:#?}", data);
+        let router_id = RouterId(data.router_id.clone());
+        let publisher_id = PublisherId(data.track_id.clone());
+        if data.closed {
+            let locked = self.worker.lock().await;
+            match locked.routers.get(&data.router_id) {
+                Some(router) => {
+                    let mut router = router.lock().await;
+                    router.remove_relayd_publisher(&data.track_id).await;
+                }
+                None => return "not_found",
+            }
+
+            let mut publishers = self.publishers.lock().await;
+
+            if let Some(router_publisher) = publishers.get(&publisher_id) {
+                if let Some(publisher) = router_publisher.get(&router_id) {
+                    let locked = publisher.lock().await;
+                    locked.close();
+                }
+            }
+            publishers.remove(&publisher_id);
+
+            return "ok";
+        } else {
+            let locked = self.worker.lock().await;
+            match locked.routers.get(&data.router_id) {
+                Some(router) => {
+                    tracing::debug!("router id={} is found", data.router_id);
+
+                    let mut publishers = self.publishers.lock().await;
+                    if let Some(publisher) = publishers
+                        .get(&publisher_id)
+                        .and_then(|p| p.get(&router_id))
+                    {
+                        let mut publisher = publisher.lock().await;
+                        publisher.publisher_type = data.publisher_type;
+                        publisher.create_relayed_track(
+                            data.track_id.clone(),
+                            data.ssrc,
+                            data.rid,
+                            data.mime_type,
+                            data.codec_capability.into(),
+                            data.stream_id,
+                        );
+                    } else {
+                        let publisher =
+                            RelayedPublisher::new(data.track_id.clone(), data.publisher_type);
+                        {
+                            let publisher = publisher.lock().await;
+                            publisher.create_relayed_track(
+                                data.track_id.clone(),
+                                data.ssrc,
+                                data.rid,
+                                data.mime_type,
+                                data.codec_capability.into(),
+                                data.stream_id,
+                            );
+                        }
+
+                        {
+                            let mut router = router.lock().await;
+                            router
+                                .add_relayed_publisher(data.track_id.clone(), publisher.clone())
+                                .await;
+                        }
+
+                        if let Some(router_publisher) = publishers.get_mut(&publisher_id) {
+                            router_publisher.insert(router_id.clone(), publisher.clone());
+                        } else {
+                            publishers.insert(
+                                publisher_id.clone(),
+                                HashMap::from([(router_id.clone(), publisher.clone())]),
+                            );
+                        }
+                    }
+
+                    return "ok";
+                }
+                None => {
+                    tracing::warn!("router id={} is not found", data.router_id);
+                    return "not_found";
+                }
+            }
+        }
     }
 
     pub(crate) async fn run_udp(&self) -> Result<bool, Error> {
