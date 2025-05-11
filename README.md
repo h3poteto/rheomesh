@@ -117,7 +117,7 @@ $ docker compose up -d
 
 When you access `localhost:3001`, the frontend connects server 1 (`sfu1`). When you access `localhost:3002`, the frontend connects server 2 (`sfu2`). Please try:
 
-1. Join the same room, e.g. `my-room` on `localhost:30001` and `localhost:3002`
+1. Join the same room, e.g. `my-room` on `localhost:3001` and `localhost:3002`
 1. `Connect` on `localhost:3001`
 1. `Capture` a screen on `localhost:3001`
 1. `Connect` on `localhost:3002`
