@@ -4,15 +4,23 @@ use webrtc::{
     api::{
         interceptor_registry::register_default_interceptors, media_engine::MediaEngine, APIBuilder,
     },
-    ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
+    ice_transport::{
+        ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
+        ice_gathering_state::RTCIceGatheringState,
+    },
     interceptor::registry::Registry,
-    peer_connection::{sdp::session_description::RTCSessionDescription, RTCPeerConnection},
+    peer_connection::{
+        peer_connection_state::RTCPeerConnectionState,
+        sdp::session_description::RTCSessionDescription, signaling_state::RTCSignalingState,
+        RTCPeerConnection,
+    },
     rtcp,
     rtp_transceiver::{
         rtp_codec::{RTCRtpHeaderExtensionCapability, RTPCodecType},
         rtp_receiver::RTCRtpReceiver,
         RTCRtpTransceiver,
     },
+    stats,
     track::track_remote::TrackRemote,
 };
 
@@ -87,4 +95,12 @@ pub trait Transport {
         &self,
         candidate: RTCIceCandidateInit,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
+
+    fn get_stats(&self) -> impl std::future::Future<Output = stats::StatsReport> + Send;
+
+    fn signaling_state(&self) -> RTCSignalingState;
+
+    fn ice_gathering_state(&self) -> RTCIceGatheringState;
+
+    fn connection_state(&self) -> RTCPeerConnectionState;
 }
