@@ -149,6 +149,23 @@ export class SubscribeTransport extends EventEmitter {
     });
   }
 
+  public signalingState() {
+    return this._peerConnection.signalingState;
+  }
+
+  public iceGatheringState() {
+    return this._peerConnection.iceGatheringState;
+  }
+
+  public connectionState() {
+    return this._peerConnection.connectionState;
+  }
+
+  public async getStats(): Promise<RTCStatsReport> {
+    const stats = await this._peerConnection.getStats();
+    return stats;
+  }
+
   public close() {
     this._peerConnection.close();
   }
