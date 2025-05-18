@@ -21,12 +21,17 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 use uuid::Uuid;
 use webrtc::{
     data_channel::RTCDataChannel,
-    ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
+    ice_transport::{
+        ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
+        ice_gathering_state::RTCIceGatheringState,
+    },
     peer_connection::{
+        peer_connection_state::RTCPeerConnectionState,
         sdp::session_description::RTCSessionDescription, signaling_state::RTCSignalingState,
         RTCPeerConnection,
     },
     rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
+    stats,
     track::track_remote::TrackRemote,
 };
 
@@ -375,6 +380,23 @@ impl Transport for PublishTransport {
         }
 
         Ok(())
+    }
+
+    fn signaling_state(&self) -> RTCSignalingState {
+        self.peer_connection.signaling_state()
+    }
+
+    fn ice_gathering_state(&self) -> RTCIceGatheringState {
+        self.peer_connection.ice_gathering_state()
+    }
+
+    fn connection_state(&self) -> RTCPeerConnectionState {
+        self.peer_connection.connection_state()
+    }
+
+    async fn get_stats(&self) -> stats::StatsReport {
+        let report = self.peer_connection.get_stats().await;
+        report
     }
 }
 

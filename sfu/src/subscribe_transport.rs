@@ -1,36 +1,47 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 
 use derivative::Derivative;
 use enclose::enc;
-use tokio::sync::{mpsc, oneshot, watch, Mutex};
-use tokio::time::sleep;
-use uuid::Uuid;
-use webrtc::api::media_engine::MIME_TYPE_OPUS;
-use webrtc::ice_transport::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
-use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-use webrtc::peer_connection::RTCPeerConnection;
-use webrtc::peer_connection::{
-    offer_answer_options::RTCOfferOptions, sdp::session_description::RTCSessionDescription,
+use tokio::{
+    sync::{mpsc, oneshot, watch, Mutex},
+    time::sleep,
 };
-use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
-use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
-use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
+use uuid::Uuid;
+use webrtc::{
+    api::media_engine::MIME_TYPE_OPUS,
+    ice_transport::{
+        ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
+        ice_gathering_state::RTCIceGatheringState,
+    },
+    peer_connection::{
+        offer_answer_options::RTCOfferOptions, peer_connection_state::RTCPeerConnectionState,
+        sdp::session_description::RTCSessionDescription, signaling_state::RTCSignalingState,
+        RTCPeerConnection,
+    },
+    rtp_transceiver::rtp_codec::RTCRtpCodecCapability,
+    stats,
+    track::track_local::{
+        track_local_static_rtp::TrackLocalStaticRTP,
+        track_local_static_sample::TrackLocalStaticSample,
+    },
+};
 use webrtc_sdp::attribute_type::{SdpAttribute, SdpAttributeType};
 use webrtc_sdp::parse_sdp;
 
-use crate::config::{find_extmap_order, MediaConfig, WebRTCTransportConfig, RID};
-use crate::data_publisher::DataPublisher;
-use crate::data_subscriber::DataSubscriber;
-use crate::prober::Prober;
-use crate::router::Router;
-use crate::subscriber::Subscriber;
-use crate::track::Track;
-use crate::transport::{OnIceCandidateFn, OnNegotiationNeededFn, PeerConnection, Transport};
 use crate::{
+    config::{find_extmap_order, MediaConfig, WebRTCTransportConfig, RID},
+    data_publisher::DataPublisher,
+    data_subscriber::DataSubscriber,
     error::{Error, SubscriberErrorKind, TransportErrorKind},
-    router::RouterEvent,
+    prober::Prober,
+    router::{Router, RouterEvent},
+    subscriber::Subscriber,
+    track::Track,
+    transport::{OnIceCandidateFn, OnNegotiationNeededFn, PeerConnection, Transport},
 };
 
 /// This handle [`webrtc::peer_connection::RTCPeerConnection`] methods for subscriber.
@@ -456,6 +467,23 @@ impl Transport for SubscribeTransport {
         }
 
         Ok(())
+    }
+
+    fn signaling_state(&self) -> RTCSignalingState {
+        self.peer_connection.signaling_state()
+    }
+
+    fn ice_gathering_state(&self) -> RTCIceGatheringState {
+        self.peer_connection.ice_gathering_state()
+    }
+
+    fn connection_state(&self) -> RTCPeerConnectionState {
+        self.peer_connection.connection_state()
+    }
+
+    async fn get_stats(&self) -> stats::StatsReport {
+        let report = self.peer_connection.get_stats().await;
+        report
     }
 }
 
