@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use bincode::{Decode, Encode};
 use bytes::Bytes;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -30,6 +31,7 @@ pub(crate) struct RelayServer {
     worker: Arc<Mutex<Worker>>,
     stop_sender: broadcast::Sender<bool>,
     publishers: Arc<Mutex<HashMap<PublisherId, HashMap<RouterId, Arc<Mutex<RelayedPublisher>>>>>>,
+    udp_port: u16,
 }
 
 impl RelayServer {
@@ -48,6 +50,7 @@ impl RelayServer {
             worker,
             stop_sender,
             publishers: Arc::new(Mutex::new(HashMap::new())),
+            udp_port,
         })
     }
 
@@ -80,7 +83,8 @@ impl RelayServer {
             match serde_json::from_slice::<TrackData>(&buffer[..n]) {
                 Ok(data) => {
                     let res = self.handle_tcp_message(data).await;
-                    stream.write_all(res.as_bytes()).await?;
+                    let byte = bincode::encode_to_vec(res, bincode::config::standard()).unwrap();
+                    stream.write_all(&byte).await?;
                 }
                 Err(err) => {
                     tracing::error!("failed to parse tcp stream: {}", err);
@@ -92,7 +96,7 @@ impl RelayServer {
         Ok(true)
     }
 
-    async fn handle_tcp_message(&self, data: TrackData) -> &str {
+    async fn handle_tcp_message(&self, data: TrackData) -> TCPResponse {
         tracing::debug!("tcp stream received: {:#?}", data);
         let router_id = RouterId(data.router_id.clone());
         let publisher_id = PublisherId(data.track_id.clone());
@@ -103,7 +107,13 @@ impl RelayServer {
                     let mut router = router.lock().await;
                     router.remove_relayd_publisher(&data.track_id).await;
                 }
-                None => return "not_found",
+                None => {
+                    return TCPResponse {
+                        status: "error".to_string(),
+                        message: "router not found".to_string(),
+                        port: None,
+                    }
+                }
             }
 
             let mut publishers = self.publishers.lock().await;
@@ -116,7 +126,11 @@ impl RelayServer {
             }
             publishers.remove(&publisher_id);
 
-            return "ok";
+            return TCPResponse {
+                status: "ok".to_string(),
+                message: "publisher removed".to_string(),
+                port: None,
+            };
         } else {
             let locked = self.worker.lock().await;
             match locked.routers.get(&data.router_id) {
@@ -170,11 +184,19 @@ impl RelayServer {
                         }
                     }
 
-                    return "ok";
+                    return TCPResponse {
+                        status: "ok".to_string(),
+                        message: "publisher added".to_string(),
+                        port: Some(self.udp_port),
+                    };
                 }
                 None => {
                     tracing::warn!("router id={} is not found", data.router_id);
-                    return "not_found";
+                    return TCPResponse {
+                        status: "error".to_string(),
+                        message: "router not found".to_string(),
+                        port: None,
+                    };
                 }
             }
         }
@@ -214,4 +236,11 @@ impl RelayServer {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub(crate) struct TCPResponse {
+    pub(crate) status: String,
+    pub(crate) message: String,
+    pub(crate) port: Option<u16>,
 }

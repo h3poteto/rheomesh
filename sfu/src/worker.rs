@@ -22,12 +22,7 @@ impl Worker {
     /// Creates a new worker with the given configuration. And starts the relay server.
     pub async fn new(config: WorkerConfig) -> Result<Arc<Mutex<Self>>, Error> {
         let (stop_sender, _rx) = broadcast::channel(1);
-        let relay_sender = RelaySender::new(
-            config.relay_sender_port,
-            config.relay_server_tcp_port,
-            config.relay_server_udp_port,
-        )
-        .await?;
+        let relay_sender = RelaySender::new(config.relay_sender_port).await?;
         let (tx, rx) = mpsc::unbounded_channel::<WorkerEvent>();
 
         let worker = Self {

@@ -36,9 +36,18 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig {
-        relay_sender_port: 9441,
-        relay_server_udp_port: 9442,
-        relay_server_tcp_port: 9443,
+        relay_sender_port: env::var("RELAY_SENDER_PORT")
+            .unwrap_or_else(|_| "9441".to_string())
+            .parse()
+            .expect("Failed to parse RELAY_SENDER_PORT"),
+        relay_server_udp_port: env::var("RELAY_SERVER_UDP_PORT")
+            .unwrap_or_else(|_| "9442".to_string())
+            .parse()
+            .expect("Failed to parse RELAY_SERVER_UDP_PORT"),
+        relay_server_tcp_port: env::var("RELAY_SERVER_TCP_PORT")
+            .unwrap_or_else(|_| "9443".to_string())
+            .parse()
+            .expect("Failed to parse RELAY_SERVER_TCP_PORT"),
     })
     .await
     .unwrap();
@@ -95,6 +104,10 @@ async fn socket(
                     router_id,
                     room_id.to_string(),
                     env::var("LOCAL_IP").unwrap(),
+                    env::var("RELAY_SERVER_TCP_PORT")
+                        .unwrap_or_else(|_| "9443".to_string())
+                        .parse()
+                        .unwrap(),
                 );
             }
             let server = WebSocket::new(room, room_owner.clone()).await;
@@ -103,28 +116,32 @@ async fn socket(
     }
 }
 
-fn store_room(router_id: String, room_id: String, ip: String) {
+fn store_room(router_id: String, room_id: String, ip: String, port: u16) {
     // We are using redis to communicate between servers.
     // When you create your own server, you can use any communication method you like.
     // For example, WebSocket, gRPC, etc.
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
     // hset overwrite the value if it exists.
-    let _: () = conn.hset(room_id, ip, router_id).unwrap();
+    let _: () = conn.hset(room_id, (ip, port), router_id).unwrap();
 }
 
-fn delete_room(room_id: String, ip: String) {
+fn delete_room(room_id: String, ip: String, port: u16) {
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
     // hdel delete the value if it exists.
-    let _: () = conn.hdel(room_id, ip).unwrap();
+    let _: () = conn.hdel(room_id, (ip, port)).unwrap();
 }
 
-fn get_pair_servers(room_id: String, my_ip: String) -> HashMap<String, String> {
+fn get_pair_servers(
+    room_id: String,
+    my_ip: String,
+    my_port: u16,
+) -> HashMap<(String, u16), String> {
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
-    let mut res: HashMap<String, String> = conn.hgetall(room_id).unwrap();
-    let _ = res.remove(&my_ip);
+    let mut res: HashMap<(String, u16), String> = conn.hgetall(room_id).unwrap();
+    let _ = res.remove(&(my_ip, my_port));
     res
 }
 
@@ -212,7 +229,14 @@ impl Actor for WebSocket {
             let router = self.room.router.clone();
             let room_id = self.room.id.clone();
             actix::spawn(async move {
-                delete_room(room_id.clone(), env::var("LOCAL_IP").unwrap());
+                delete_room(
+                    room_id.clone(),
+                    env::var("LOCAL_IP").unwrap(),
+                    env::var("RELAY_SERVER_TCP_PORT")
+                        .unwrap_or_else(|_| "9443".to_string())
+                        .parse()
+                        .unwrap(),
+                );
                 let mut owner = owner.lock().await;
                 owner.remove_room(room_id.clone());
                 let router = router.lock().await;
@@ -286,6 +310,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                                 let message = msg.get_payload::<String>().unwrap();
                                 let value: serde_json::Value = serde_json::from_str(&message).unwrap();
                                 let target_ip = value.get("ip").unwrap().as_str().unwrap();
+                                let target_port = value.get("port").unwrap().as_u64().unwrap();
                                 let target_router_id = value.get("router_id").unwrap().as_str().unwrap();
                                 if target_ip.to_string() != ip {
                                     tracing::debug!("subscriber added: {:#?}", value);
@@ -298,7 +323,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                                     for (track_id, publisher) in guard.iter() {
                                         let mut publisher = publisher.lock().await;
                                         let res = publisher
-                                            .relay_to(target_ip.to_string(), target_router_id.to_string())
+                                            .relay_to(target_ip.to_string(), u16::try_from(target_port).unwrap(), target_router_id.to_string())
                                             .await
                                             .unwrap();
                                         if !res {
@@ -496,14 +521,24 @@ impl Handler<ReceivedMessage> for WebSocket {
                                 });
                             }
 
-                            let servers = get_pair_servers(room_id, env::var("LOCAL_IP").unwrap());
+                            let servers = get_pair_servers(
+                                room_id,
+                                env::var("LOCAL_IP").unwrap(),
+                                env::var("RELAY_SERVER_TCP_PORT")
+                                    .unwrap_or_else(|_| "9443".to_string())
+                                    .parse()
+                                    .unwrap(),
+                            );
                             let mut con = redis_client
                                 .get_multiplexed_async_connection()
                                 .await
                                 .unwrap();
-                            for (ip, router_id) in servers {
+                            for ((ip, port), router_id) in servers {
                                 let mut publisher = publisher.lock().await;
-                                let _ = publisher.relay_to(ip, router_id.clone()).await.unwrap();
+                                let _ = publisher
+                                    .relay_to(ip, port, router_id.clone())
+                                    .await
+                                    .unwrap();
                                 let _ = con
                                     .publish::<String, String, i64>(
                                         channel.clone(),
