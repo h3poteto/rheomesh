@@ -122,15 +122,17 @@ fn store_room(router_id: String, room_id: String, ip: String, port: u16) {
     // For example, WebSocket, gRPC, etc.
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
+    let field = format!("{}|{}", ip, port);
     // hset overwrite the value if it exists.
-    let _: () = conn.hset(room_id, (ip, port), router_id).unwrap();
+    let _: () = conn.hset(room_id, field, router_id).unwrap();
 }
 
 fn delete_room(room_id: String, ip: String, port: u16) {
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
+    let field = format!("{}|{}", ip, port);
     // hdel delete the value if it exists.
-    let _: () = conn.hdel(room_id, (ip, port)).unwrap();
+    let _: () = conn.hdel(room_id, field).unwrap();
 }
 
 fn get_pair_servers(
@@ -140,9 +142,23 @@ fn get_pair_servers(
 ) -> HashMap<(String, u16), String> {
     let client = redis::Client::open("redis://redis/").unwrap();
     let mut conn = client.get_connection().unwrap();
-    let mut res: HashMap<(String, u16), String> = conn.hgetall(room_id).unwrap();
-    let _ = res.remove(&(my_ip, my_port));
-    res
+    let mut res: HashMap<String, String> = conn.hgetall(room_id).unwrap();
+    let field = format!("{}|{}", my_ip, my_port);
+    let _ = res.remove(&field);
+    let parsed: HashMap<(String, u16), String> = res
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let parts: Vec<&str> = key.split('|').collect();
+            if parts.len() == 2 {
+                let ip = parts[0].to_string();
+                let port = parts[1].parse::<u16>().unwrap_or(0);
+                Some(((ip, port), value))
+            } else {
+                None
+            }
+        })
+        .collect();
+    parsed
 }
 
 struct WebSocket {
@@ -381,6 +397,10 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let channel = format!("{}_join", self.room.id.clone());
                 let router = self.room.router.clone();
                 let ip = env::var("LOCAL_IP").unwrap();
+                let port = env::var("RELAY_SERVER_TCP_PORT")
+                    .unwrap_or_else(|_| "9443".to_string())
+                    .parse::<u16>()
+                    .unwrap();
                 tokio::spawn(async move {
                     let router = router.lock().await;
                     let mut con = redis_client
@@ -390,6 +410,7 @@ impl Handler<ReceivedMessage> for WebSocket {
 
                     let json_value = json!({
                         "ip": ip,
+                        "port": port,
                         "router_id": router.id
                     });
                     let json_string = serde_json::to_string(&json_value).unwrap();
