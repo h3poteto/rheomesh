@@ -40,6 +40,7 @@ services:
       PUBLIC_IP: 192.168.10.1
       RTC_MIN_PORT: 12000
       RTC_MAX_PORT: 12020
+      REDIS_HOST: redis
     command: cargo run --example relay_server
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=1
@@ -60,6 +61,7 @@ services:
       PUBLIC_IP: 192.168.10.1
       RTC_MIN_PORT: 13000
       RTC_MAX_PORT: 13020
+      REDIS_HOST: redis
     command: cargo run --example relay_server
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=1
