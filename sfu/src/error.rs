@@ -13,6 +13,10 @@ pub enum Error {
     #[error(transparent)]
     IOError(#[from] io::Error),
     #[error(transparent)]
+    BincodeDecodeError(#[from] bincode::error::DecodeError),
+    #[error(transparent)]
+    BincodeEncodeError(#[from] bincode::error::EncodeError),
+    #[error(transparent)]
     TransportError(#[from] TransportError),
     #[error(transparent)]
     SubscriberError(#[from] SubscriberError),
@@ -20,6 +24,8 @@ pub enum Error {
     PublisherError(#[from] PublisherError),
     #[error(transparent)]
     RtpParseError(#[from] RtpParseError),
+    #[error(transparent)]
+    RelayError(#[from] RelayError),
 }
 
 #[derive(thiserror::Error)]
@@ -47,6 +53,13 @@ pub struct PublisherError {
 #[error("{kind}: {message}")]
 pub struct RtpParseError {
     pub kind: RtpParseErrorKind,
+    pub message: String,
+}
+
+#[derive(thiserror::Error)]
+#[error("{kind}: {message}")]
+pub struct RelayError {
+    pub kind: RelayErrorKind,
     pub message: String,
 }
 
@@ -90,6 +103,14 @@ pub enum RtpParseErrorKind {
     AV1DependencyDescriptorError,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RelayErrorKind {
+    #[error("relay sender error")]
+    RelaySenderError,
+    #[error("relay receiver error")]
+    RelayReceiverError,
+}
+
 impl Error {
     pub fn new_transport(message: String, kind: TransportErrorKind) -> Error {
         Error::TransportError(TransportError { kind, message })
@@ -105,6 +126,10 @@ impl Error {
 
     pub fn new_rtp(message: String, kind: RtpParseErrorKind) -> Error {
         Error::RtpParseError(RtpParseError { kind, message })
+    }
+
+    pub fn new_relay(message: String, kind: RelayErrorKind) -> Error {
+        Error::RelayError(RelayError { kind, message })
     }
 }
 
@@ -144,6 +169,17 @@ impl fmt::Debug for PublisherError {
 impl fmt::Debug for RtpParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut builder = f.debug_struct("rheomesh::RtpParseError");
+
+        builder.field("kind", &self.kind);
+        builder.field("message", &self.message);
+
+        builder.finish()
+    }
+}
+
+impl fmt::Debug for RelayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut builder = f.debug_struct("rheomesh::RelayError");
 
         builder.field("kind", &self.kind);
         builder.field("message", &self.message);

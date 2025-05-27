@@ -6,9 +6,12 @@ use tokio::{
 use webrtc::{rtp, rtp_transceiver::rtp_codec::RTCRtpCodecCapability};
 
 use crate::{
-    error::Error,
+    error::{self, Error},
     publisher::PublisherType,
-    relay::data::{PacketData, TrackData},
+    relay::{
+        data::{PacketData, TrackData},
+        receiver::TCPResponse,
+    },
     rtp::layer::Layer,
 };
 
@@ -18,29 +21,18 @@ use super::data::RTCRtpCodecCapabilitySerializable;
 pub(crate) struct RelaySender {
     /// UDP socket for sending RTP packets.
     socket: UdpSocket,
-    /// UDP port of the target relay server.
-    server_udp_port: u16,
-    /// TCP port of the target relay server.
-    server_tcp_port: u16,
 }
 
 impl RelaySender {
-    pub(crate) async fn new(
-        port: u16,
-        server_tcp_port: u16,
-        server_udp_port: u16,
-    ) -> Result<Self, Error> {
+    pub(crate) async fn new(port: u16) -> Result<Self, Error> {
         let socket = UdpSocket::bind(format!("0.0.0.0:{}", port)).await?;
-        Ok(Self {
-            socket,
-            server_udp_port,
-            server_tcp_port,
-        })
+        Ok(Self { socket })
     }
 
     pub(crate) async fn create_relay_track(
         &self,
         ip: String,
+        port: u16,
         router_id: String,
         track_id: String,
         ssrc: u32,
@@ -49,8 +41,8 @@ impl RelaySender {
         mime_type: String,
         rid: String,
         publisher_type: PublisherType,
-    ) -> Result<bool, Error> {
-        let addr = format!("{}:{}", ip, self.server_tcp_port);
+    ) -> Result<u16, Error> {
+        let addr = format!("{}:{}", ip, port);
         let mut stream = TcpStream::connect(addr).await?;
 
         tracing::debug!("creating relay track with {:#?}", publisher_type);
@@ -71,22 +63,33 @@ impl RelaySender {
         let mut buf = Vec::with_capacity(4096);
         stream.read_buf(&mut buf).await?;
 
-        let received = String::from_utf8(buf).unwrap();
-        if received == "ok" {
-            Ok(true)
-        } else {
-            tracing::warn!("{} returns unexpected response: {}", ip, received);
-            Ok(false)
+        match bincode::decode_from_slice(&buf, bincode::config::standard()) {
+            Ok((response, _len)) => {
+                let received: TCPResponse = response;
+                if let Some(port) = received.port {
+                    return Ok(port);
+                } else {
+                    return Err(Error::new_relay(
+                        "UDP port not found".to_string(),
+                        error::RelayErrorKind::RelaySenderError,
+                    ));
+                }
+            }
+            Err(err) => {
+                tracing::error!("Failed to decode TCP response: {}", err);
+                return Err(Error::from(err));
+            }
         }
     }
 
     pub(crate) async fn remove_relayed_publisher(
         &self,
         ip: String,
+        port: u16,
         router_id: String,
         track_id: String,
     ) -> Result<bool, Error> {
-        let addr = format!("{}:{}", ip, self.server_tcp_port);
+        let addr = format!("{}:{}", ip, port);
         let mut stream = TcpStream::connect(addr).await?;
 
         let data = TrackData {
@@ -117,6 +120,7 @@ impl RelaySender {
     pub(crate) async fn rtp_sender_loop(
         &self,
         ip: String,
+        port: u16,
         ssrc: u32,
         track_id: String,
         rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
@@ -126,7 +130,7 @@ impl RelaySender {
 
         tracing::debug!("Relay sender publisher_ssrc={} RTP loop has started", ssrc);
 
-        let addr = format!("{}:{}", ip, self.server_udp_port);
+        let addr = format!("{}:{}", ip, port);
 
         loop {
             let res = rtp_receiver.recv().await;

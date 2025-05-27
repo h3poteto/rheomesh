@@ -32,7 +32,7 @@ pub struct Publisher {
     pub publisher_type: PublisherType,
     subscriber_event_sender: Vec<mpsc::UnboundedSender<SubscriberEvent>>,
     relay_sender: Arc<RelaySender>,
-    relayed_targets: Vec<(String, String)>,
+    relayed_targets: Vec<(String, u16, String)>,
     relayed_publishers: HashMap<u32, String>,
 }
 
@@ -158,12 +158,13 @@ impl Publisher {
                     p.local_tracks.insert(ssrc, local_track.clone());
                     p.rid_to_ssrc.insert(rid, ssrc);
 
-                    for (ip, router_id) in p.relayed_targets.clone().into_iter() {
+                    for (ip, port, router_id) in p.relayed_targets.clone().into_iter() {
                         let relay_sender = p.relay_sender.clone();
                         let track_id = local_track.id();
                         match relay_sender
                             .create_relay_track(
                                 ip.clone(),
+                                port.clone(),
                                 router_id.clone(),
                                 track_id.clone(),
                                 ssrc,
@@ -175,19 +176,23 @@ impl Publisher {
                             )
                             .await
                         {
-                            Ok(res) => {
-                                if res {
-                                    p.relayed_publishers.insert(ssrc, ip.clone());
-                                    let rtp_packet_sender = local_track.rtp_packet_sender();
-                                    let event_sender = p.publisher_event_sender.clone();
-                                    tokio::spawn(async move {
-                                        let _ = relay_sender
-                                            .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
-                                            .await;
-                                        let _ = event_sender
-                                            .send(PublisherEvent::RTPSenderLoopClosed(ssrc));
-                                    });
-                                }
+                            Ok(udp_port) => {
+                                p.relayed_publishers.insert(ssrc, ip.clone());
+                                let rtp_packet_sender = local_track.rtp_packet_sender();
+                                let event_sender = p.publisher_event_sender.clone();
+                                tokio::spawn(async move {
+                                    let _ = relay_sender
+                                        .rtp_sender_loop(
+                                            ip,
+                                            udp_port,
+                                            ssrc,
+                                            track_id,
+                                            rtp_packet_sender,
+                                        )
+                                        .await;
+                                    let _ = event_sender
+                                        .send(PublisherEvent::RTPSenderLoopClosed(ssrc));
+                                });
                             }
                             Err(err) => {
                                 tracing::error!(
@@ -220,11 +225,12 @@ impl Publisher {
                     for (_ssrc, track) in &p.local_tracks {
                         track.close();
                     }
-                    for (ip, router_id) in p.relayed_targets.iter() {
+                    for (ip, port, router_id) in p.relayed_targets.iter() {
                         if let Err(err) = p
                             .relay_sender
                             .remove_relayed_publisher(
                                 ip.to_string(),
+                                port.clone(),
                                 router_id.to_string(),
                                 p.track_id.clone(),
                             )
@@ -246,12 +252,21 @@ impl Publisher {
     }
 
     /// Forwards the publisher to a specific router in a specific server specified by `ip`. A [`crate::relay::relayed_publisher::RelayedPublisher`] and [`crate::relay::relayed_track::RelayedTrack`] are created in the server after this method.
-    pub async fn relay_to(&mut self, ip: String, router_id: String) -> Result<bool, Error> {
+    /// * `ip` - The IP address of the server to forward the publisher to.
+    /// * `port` - The TCP port of the server to forward the publisher to.
+    /// * `router_id` - The ID of the router to forward the publisher to.
+    pub async fn relay_to(
+        &mut self,
+        ip: String,
+        port: u16,
+        router_id: String,
+    ) -> Result<bool, Error> {
         for (ssrc, local_track) in self.local_tracks.iter() {
-            let res = self
+            let udp_port = self
                 .relay_sender
                 .create_relay_track(
                     ip.clone(),
+                    port,
                     router_id.clone(),
                     self.track_id.clone(),
                     local_track.ssrc(),
@@ -262,9 +277,6 @@ impl Publisher {
                     self.publisher_type.clone(),
                 )
                 .await?;
-            if !res {
-                return Ok(false);
-            }
             let rtp_packet_sender = local_track.rtp_packet_sender();
 
             if let Some(_) = self.relayed_publishers.get(ssrc).and_then(|saved_ip| {
@@ -275,20 +287,22 @@ impl Publisher {
                 }
             }) {
                 tracing::info!(
-                    "Track trac_id={} ssrc={} already relayed to {}",
+                    "Track trac_id={} ssrc={} already relayed to {}:{}",
                     self.track_id,
                     ssrc,
-                    ip
+                    ip,
+                    udp_port,
                 );
             } else {
                 let ssrc = ssrc.clone();
                 let ip = ip.clone();
+                let udp_port = udp_port.clone();
                 let track_id = self.track_id.clone();
                 let relay_sender = self.relay_sender.clone();
                 let event_sender = self.publisher_event_sender.clone();
                 tokio::spawn(async move {
                     let _ = relay_sender
-                        .rtp_sender_loop(ip, ssrc, track_id, rtp_packet_sender)
+                        .rtp_sender_loop(ip, udp_port, ssrc, track_id, rtp_packet_sender)
                         .await;
                     let _ = event_sender.send(PublisherEvent::RTPSenderLoopClosed(ssrc));
                 });
@@ -296,7 +310,7 @@ impl Publisher {
             self.relayed_publishers.insert(ssrc.clone(), ip.clone());
         }
 
-        self.relayed_targets.push((ip, router_id));
+        self.relayed_targets.push((ip, port, router_id));
         Ok(true)
     }
 }
