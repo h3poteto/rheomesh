@@ -54,6 +54,8 @@ async fn main() -> std::io::Result<()> {
     let room_owner = RoomOwner::new(worker);
     let room_data = Data::new(Mutex::new(room_owner));
 
+    let port = env::var("PORT").unwrap_or_else(|_| "4000".to_string());
+
     HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
@@ -61,7 +63,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(room_data.clone())
             .route("/socket", web::get().to(socket))
     })
-    .bind("0.0.0.0:4000")?
+    .bind(format!("0.0.0.0:{}", port))?
     .run()
     .await
 }
@@ -120,7 +122,8 @@ fn store_room(router_id: String, room_id: String, ip: String, port: u16) {
     // We are using redis to communicate between servers.
     // When you create your own server, you can use any communication method you like.
     // For example, WebSocket, gRPC, etc.
-    let client = redis::Client::open("redis://redis/").unwrap();
+    let redis_host = env::var("REDIS_HOST").unwrap();
+    let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
     let mut conn = client.get_connection().unwrap();
     let field = format!("{}|{}", ip, port);
     // hset overwrite the value if it exists.
@@ -128,7 +131,8 @@ fn store_room(router_id: String, room_id: String, ip: String, port: u16) {
 }
 
 fn delete_room(room_id: String, ip: String, port: u16) {
-    let client = redis::Client::open("redis://redis/").unwrap();
+    let redis_host = env::var("REDIS_HOST").unwrap();
+    let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
     let mut conn = client.get_connection().unwrap();
     let field = format!("{}|{}", ip, port);
     // hdel delete the value if it exists.
@@ -140,7 +144,8 @@ fn get_pair_servers(
     my_ip: String,
     my_port: u16,
 ) -> HashMap<(String, u16), String> {
-    let client = redis::Client::open("redis://redis/").unwrap();
+    let redis_host = env::var("REDIS_HOST").unwrap();
+    let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
     let mut conn = client.get_connection().unwrap();
     let mut res: HashMap<String, String> = conn.hgetall(room_id).unwrap();
     let field = format!("{}|{}", my_ip, my_port);
@@ -198,7 +203,8 @@ impl WebSocket {
 
         let publish_transport = router.create_publish_transport(config.clone()).await;
         let subscribe_transport = router.create_subscribe_transport(config).await;
-        let client = redis::Client::open("redis://redis/").unwrap();
+        let redis_host = env::var("REDIS_HOST").unwrap();
+        let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
         let cancel = CancellationToken::new();
 
         Self {
@@ -308,6 +314,10 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let redis_client = self.redis_client.clone();
                 let channel = format!("{}_join", self.room.id.clone());
                 let ip = env::var("LOCAL_IP").unwrap();
+                let port = env::var("RELAY_SERVER_TCP_PORT")
+                    .unwrap_or_else(|_| "9443".to_string())
+                    .parse::<u16>()
+                    .unwrap();
                 let publishers = self.publishers.clone();
                 let room_id = self.room.id.clone();
                 let cancel_child = self.cancel.child_token();
@@ -325,11 +335,12 @@ impl Handler<ReceivedMessage> for WebSocket {
                             Some(msg) = stream.next() => {
                                 let message = msg.get_payload::<String>().unwrap();
                                 let value: serde_json::Value = serde_json::from_str(&message).unwrap();
+                                tracing::debug!("subscriber added: {:#?}", value);
                                 let target_ip = value.get("ip").unwrap().as_str().unwrap();
-                                let target_port = value.get("port").unwrap().as_u64().unwrap();
+                                let pp = value.get("port").unwrap().as_u64().unwrap();
+                                let target_port = u16::try_from(pp).unwrap();
                                 let target_router_id = value.get("router_id").unwrap().as_str().unwrap();
-                                if target_ip.to_string() != ip {
-                                    tracing::debug!("subscriber added: {:#?}", value);
+                                if target_ip.to_string() != ip || target_port != port {
                                     let mut con = redis_client
                                         .get_multiplexed_async_connection()
                                         .await
@@ -339,7 +350,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                                     for (track_id, publisher) in guard.iter() {
                                         let mut publisher = publisher.lock().await;
                                         let res = publisher
-                                            .relay_to(target_ip.to_string(), u16::try_from(target_port).unwrap(), target_router_id.to_string())
+                                            .relay_to(target_ip.to_string(),target_port, target_router_id.to_string())
                                             .await
                                             .unwrap();
                                         if !res {
@@ -413,6 +424,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                         "port": port,
                         "router_id": router.id
                     });
+                    tracing::debug!("subscriberInit: {:#?}", json_value);
                     let json_string = serde_json::to_string(&json_value).unwrap();
                     let _ = con
                         .publish::<String, String, i64>(channel, json_string)
