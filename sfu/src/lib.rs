@@ -21,6 +21,7 @@ mod prober;
 pub mod publish_transport;
 /// Audio and video methods for track.
 pub mod publisher;
+pub mod recording_transport;
 /// Relay is a module that provides methods to transfer publishers to other servers.
 pub mod relay;
 mod replay_channel;
