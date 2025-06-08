@@ -7,6 +7,7 @@ use crate::{
     local_track::LocalTrack,
     publish_transport::PublishTransport,
     publisher::Publisher,
+    recording::recording_transport::RecordingTransport,
     relay::{
         relayed_publisher::RelayedPublisher, relayed_track::RelayedTrack, sender::RelaySender,
     },
@@ -101,6 +102,15 @@ impl Router {
     ) -> SubscribeTransport {
         let tx = self.router_event_sender.clone();
         SubscribeTransport::new(tx, self.media_config.clone(), transport_config).await
+    }
+
+    pub async fn create_recording_transport(
+        &self,
+        ip: String,
+        port: u16,
+    ) -> Result<RecordingTransport, Error> {
+        let tx = self.router_event_sender.clone();
+        RecordingTransport::new(ip, port, tx).await
     }
 
     pub(crate) async fn router_event_loop(

@@ -2,40 +2,65 @@ use std::sync::Arc;
 
 use derivative::Derivative;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::{
     config::RID,
     error::Error,
-    local_track::LocalTrack,
     router::{Router, RouterEvent},
     track::Track,
 };
 
+use super::recording_track::RecordingTrack;
+
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct RecordingTransport {
+    id: String,
     ip_address: String,
     port: u16,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
+    recording_track: Arc<RecordingTrack>,
 }
 
 impl RecordingTransport {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         ip_address: String,
         port: u16,
         router_event_sender: mpsc::UnboundedSender<RouterEvent>,
-    ) -> Self {
-        RecordingTransport {
+    ) -> Result<Self, Error> {
+        let id = Uuid::new_v4().to_string();
+        let recording_track = RecordingTrack::new().await?;
+        let recording_track = Arc::new(recording_track);
+        tracing::debug!("Creating RecordingTransport with id: {}", id);
+
+        Ok(Self {
+            id,
             router_event_sender,
             ip_address,
             port,
-        }
+            recording_track,
+        })
     }
 
-    pub async fn start_recording(&self, publisher_id: String) -> Result<(), Error> {
+    pub async fn start_recording(
+        &self,
+        publisher_id: String,
+    ) -> Result<Arc<RecordingTrack>, Error> {
         let local_track = self.find_local_track(publisher_id, RID::HIGH).await?;
 
-        Ok(())
+        let ip = self.ip_address.clone();
+        let port = self.port;
+        let track_id = local_track.id();
+        let rtp_packet_sender = local_track.rtp_packet_sender();
+        let recording_track = self.recording_track.clone();
+        tokio::spawn(async move {
+            recording_track
+                .rtp_sender_loop(ip, port, track_id, rtp_packet_sender)
+                .await;
+        });
+
+        Ok(self.recording_track.clone())
     }
 
     async fn find_local_track(
@@ -64,5 +89,16 @@ impl RecordingTransport {
                 }
             }
         }
+    }
+
+    pub fn close(&self) {
+        self.recording_track.close();
+    }
+}
+
+impl Drop for RecordingTransport {
+    fn drop(&mut self) {
+        self.recording_track.close();
+        tracing::debug!("RecordingTransport {} is dropped", self.id);
     }
 }
