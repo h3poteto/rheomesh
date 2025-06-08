@@ -26,6 +26,8 @@ pub enum Error {
     RtpParseError(#[from] RtpParseError),
     #[error(transparent)]
     RelayError(#[from] RelayError),
+    #[error(transparent)]
+    RecordingError(#[from] RecordingError),
 }
 
 #[derive(thiserror::Error)]
@@ -60,6 +62,13 @@ pub struct RtpParseError {
 #[error("{kind}: {message}")]
 pub struct RelayError {
     pub kind: RelayErrorKind,
+    pub message: String,
+}
+
+#[derive(thiserror::Error)]
+#[error("{kind}: {message}")]
+pub struct RecordingError {
+    pub kind: RecordingErrorKind,
     pub message: String,
 }
 
@@ -111,6 +120,12 @@ pub enum RelayErrorKind {
     RelayReceiverError,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RecordingErrorKind {
+    #[error("port not found error")]
+    PortNotFoundError,
+}
+
 impl Error {
     pub fn new_transport(message: String, kind: TransportErrorKind) -> Error {
         Error::TransportError(TransportError { kind, message })
@@ -130,6 +145,10 @@ impl Error {
 
     pub fn new_relay(message: String, kind: RelayErrorKind) -> Error {
         Error::RelayError(RelayError { kind, message })
+    }
+
+    pub fn new_recording(message: String, kind: RecordingErrorKind) -> Error {
+        Error::RecordingError(RecordingError { kind, message })
     }
 }
 
@@ -180,6 +199,17 @@ impl fmt::Debug for RtpParseError {
 impl fmt::Debug for RelayError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut builder = f.debug_struct("rheomesh::RelayError");
+
+        builder.field("kind", &self.kind);
+        builder.field("message", &self.message);
+
+        builder.finish()
+    }
+}
+
+impl fmt::Debug for RecordingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut builder = f.debug_struct("rheomesh::RecordingError");
 
         builder.field("kind", &self.kind);
         builder.field("message", &self.message);
