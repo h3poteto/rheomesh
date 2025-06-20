@@ -250,6 +250,15 @@ export default function Room() {
     setPrefferedLayer(sid, tid);
   };
 
+  const record = () => {
+    ws.current!.send(
+      JSON.stringify({
+        action: "Record",
+        publisherId: publishers.current[0],
+      }),
+    );
+  };
+
   return (
     <div>
       <h1>Room: {room}</h1>
@@ -283,6 +292,13 @@ export default function Room() {
         </select>
         <button id="stop" onClick={stop} disabled={!connected}>
           Stop
+        </button>
+        <button
+          id="record"
+          onClick={record}
+          disabled={!(connected && (localVideo || localAudio))}
+        >
+          Record
         </button>
       </div>
       <h3>My Screen</h3>

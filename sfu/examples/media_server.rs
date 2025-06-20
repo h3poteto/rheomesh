@@ -10,6 +10,7 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
 use rheomesh::config::{CodecConfig, MediaConfig};
 use rheomesh::publisher::Publisher;
+use rheomesh::recording::recording_transport::RecordingTransport;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
 use serde::{Deserialize, Serialize};
@@ -388,6 +389,47 @@ impl Handler<ReceivedMessage> for WebSocket {
                     }
                 });
             }
+            ReceivedMessage::Record { publisher_id } => {
+                let router = self.room.router.clone();
+                actix::spawn(async move {
+                    let mut rt: Option<RecordingTransport> = None;
+                    {
+                        let recording_host =
+                            env::var("RECORDING_HOST").expect("RECORDING_HOST is required");
+                        let recording_port: u16 = env::var("RECORDING_PORT")
+                            .expect("RECORDING_PORT is required")
+                            .parse()
+                            .expect("RECORDING_PORT must be a valid port number");
+                        let router = router.lock().await;
+                        if let Ok(transport) = router
+                            .create_recording_transport(recording_host, recording_port)
+                            .await
+                        {
+                            rt = Some(transport);
+                        }
+                    }
+                    match rt {
+                        Some(transport) => match transport.generate_sdp(publisher_id.clone()).await
+                        {
+                            Ok(sdp) => {
+                                tracing::info!("Generated SDP for recording: \n{}", sdp);
+                                // Send the SDP to the client
+                                /*
+                                if let Err(err) = transport.start_recording(publisher_id).await {
+                                    tracing::error!("Failed to start recording: {}", err);
+                                }
+                                */
+                            }
+                            Err(err) => {
+                                tracing::error!("Failed to generate SDP for recording: {}", err);
+                            }
+                        },
+                        None => {
+                            tracing::error!("Failed to create recording transport");
+                        }
+                    }
+                });
+            }
         }
     }
 }
@@ -444,6 +486,8 @@ enum ReceivedMessage {
     },
     #[serde(rename_all = "camelCase")]
     RestartICE,
+    #[serde(rename_all = "camelCase")]
+    Record { publisher_id: String },
 }
 
 #[derive(Serialize, Message, Debug)]

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::{mpsc, Mutex};
-use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
+use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
 
 use crate::{
     error::{Error, PublisherErrorKind},
@@ -55,7 +55,7 @@ impl RelayedPublisher {
         ssrc: u32,
         rid: String,
         mime_type: String,
-        codec_capability: RTCRtpCodecCapability,
+        codec_parameters: RTCRtpCodecParameters,
         stream_id: String,
     ) {
         if let None = self.local_tracks.get(&ssrc) {
@@ -64,7 +64,7 @@ impl RelayedPublisher {
                 ssrc,
                 rid.clone(),
                 mime_type,
-                codec_capability,
+                codec_parameters,
                 stream_id,
             );
             let _ = self

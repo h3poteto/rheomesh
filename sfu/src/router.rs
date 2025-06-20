@@ -130,7 +130,9 @@ impl Router {
                     r.publishers.retain(|(id, _)| *id != track_id);
                 }
                 RouterEvent::GetPublisher(track_id, reply_sender) => {
+                    tracing::debug!("getting router lock");
                     let r = router.lock().await;
+                    tracing::debug!("got router lock");
                     let track = r
                         .publishers
                         .iter()
