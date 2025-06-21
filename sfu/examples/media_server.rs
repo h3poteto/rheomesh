@@ -10,6 +10,7 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use actix_web_actors::ws;
 use rheomesh::config::{CodecConfig, MediaConfig};
 use rheomesh::publisher::Publisher;
+use rheomesh::recording::recording_track::RecordingTrack;
 use rheomesh::recording::recording_transport::RecordingTransport;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
@@ -104,6 +105,7 @@ struct WebSocket {
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     subscribers: Arc<Mutex<HashMap<String, Arc<Mutex<Subscriber>>>>>,
     recording_transport: Arc<Option<RecordingTransport>>,
+    recordings: Arc<Mutex<HashMap<String, Arc<RecordingTrack>>>>,
 }
 
 impl WebSocket {
@@ -150,6 +152,7 @@ impl WebSocket {
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
             recording_transport: Arc::new(recording_transport),
+            recordings: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -429,14 +432,30 @@ impl Handler<ReceivedMessage> for WebSocket {
             }
             ReceivedMessage::StartRecording { publisher_id } => {
                 let recording_transport = self.recording_transport.clone();
+                let recordings = self.recordings.clone();
                 actix::spawn(async move {
                     if let Some(transport) = recording_transport.as_ref() {
-                        match transport.start_recording(publisher_id).await {
-                            Ok(_) => tracing::info!("Recording started successfully"),
+                        match transport.start_recording(publisher_id.clone()).await {
+                            Ok(track) => {
+                                tracing::info!("Recording started successfully");
+                                recordings.lock().await.insert(publisher_id, track);
+                            }
                             Err(err) => tracing::error!("Failed to start recording: {}", err),
                         }
                     } else {
                         tracing::error!("Recording transport is not available");
+                    }
+                });
+            }
+            ReceivedMessage::StopRecording { publisher_id } => {
+                let recordings = self.recordings.clone();
+                actix::spawn(async move {
+                    let mut r = recordings.lock().await;
+                    if let Some(track) = r.remove(&publisher_id) {
+                        track.close();
+                        tracing::info!("Recording stopped for publisher: {}", publisher_id);
+                    } else {
+                        tracing::warn!("No recording found for publisher: {}", publisher_id);
                     }
                 });
             }
@@ -500,6 +519,8 @@ enum ReceivedMessage {
     Record { publisher_id: String },
     #[serde(rename_all = "camelCase")]
     StartRecording { publisher_id: String },
+    #[serde(rename_all = "camelCase")]
+    StopRecording { publisher_id: String },
 }
 
 #[derive(Serialize, Message, Debug)]

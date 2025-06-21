@@ -117,3 +117,10 @@ impl RecordingTrack {
         let _ = self.closed_sender.send(true);
     }
 }
+
+impl Drop for RecordingTrack {
+    fn drop(&mut self) {
+        tracing::debug!("RecordingTrack with id={} is dropped", self.id);
+        self.close();
+    }
+}

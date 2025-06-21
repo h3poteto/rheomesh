@@ -90,7 +90,7 @@ impl RecordingTransport {
             connection_information: None,
             bandwidth: vec![],
             encryption_key: None,
-            attributes: attributes,
+            attributes,
         };
         let session_description = SessionDescription {
             version: 0,

@@ -203,6 +203,7 @@ export default function Room() {
   };
 
   const stop = async () => {
+    stopRecording();
     publishers.current.forEach((publisherId) => {
       ws.current!.send(
         JSON.stringify({ action: "StopPublish", publisherId: publisherId }),
@@ -276,6 +277,16 @@ export default function Room() {
     );
   };
 
+  const stopRecording = () => {
+    ws.current!.send(
+      JSON.stringify({
+        action: "StopRecording",
+        publisherId: publishers.current[0],
+      }),
+    );
+    setRecordingSDP(null);
+  };
+
   return (
     <div>
       <h1>Room: {room}</h1>
@@ -323,6 +334,13 @@ export default function Room() {
           disabled={!recordingSDP}
         >
           Start Recording
+        </button>
+        <button
+          id="stop_recording"
+          onClick={stopRecording}
+          disabled={!recordingSDP}
+        >
+          Stop Recording
         </button>
       </div>
       <h3>My Screen</h3>
