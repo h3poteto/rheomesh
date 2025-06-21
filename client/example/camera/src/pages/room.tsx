@@ -22,6 +22,7 @@ export default function Room() {
   const [subscriberIds, setSubscriberIds] = useState<Array<string>>([]);
   const [sid, setSid] = useState<number>(2);
   const [tid, setTid] = useState<number>(2);
+  const [recordingSDP, setRecordingSDP] = useState<string | null>(null);
 
   const ws = useRef<WebSocket | null>(null);
   const sendingVideoRef = useRef<HTMLVideoElement>(null);
@@ -147,6 +148,13 @@ export default function Room() {
       case "Pong":
         console.debug("pong");
         break;
+      case "RecordingSDP":
+        setRecordingSDP(message.sdp);
+        break;
+      case "RecordingError":
+        console.error("Recording error: ", message.error);
+        alert(message.error);
+        break;
       default:
         console.error("Unknown message type: ", message);
         break;
@@ -250,10 +258,19 @@ export default function Room() {
     setPrefferedLayer(sid, tid);
   };
 
-  const record = () => {
+  const getRecordingSDP = () => {
     ws.current!.send(
       JSON.stringify({
         action: "Record",
+        publisherId: publishers.current[0],
+      }),
+    );
+  };
+
+  const startRecording = () => {
+    ws.current!.send(
+      JSON.stringify({
+        action: "StartRecording",
         publisherId: publishers.current[0],
       }),
     );
@@ -294,11 +311,18 @@ export default function Room() {
           Stop
         </button>
         <button
-          id="record"
-          onClick={record}
+          id="recording_sdp"
+          onClick={getRecordingSDP}
           disabled={!(connected && (localVideo || localAudio))}
         >
-          Record
+          Get Recording SDP
+        </button>
+        <button
+          id="recording"
+          onClick={startRecording}
+          disabled={!recordingSDP}
+        >
+          Start Recording
         </button>
       </div>
       <h3>My Screen</h3>
@@ -309,6 +333,17 @@ export default function Room() {
         ref={sendingVideoRef}
         width={480}
       ></video>
+      {recordingSDP && (
+        <div>
+          <h3>Recording SDP</h3>
+          <textarea
+            rows={10}
+            cols={80}
+            value={recordingSDP}
+            readOnly
+          ></textarea>
+        </div>
+      )}
       <h3>Receving</h3>
       {Object.keys(recevingVideo).map((key) => (
         <div key={key}>

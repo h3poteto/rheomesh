@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicU16, AtomicU32, Ordering},
+    Arc,
+};
+
 use derivative::Derivative;
 use tokio::{net::UdpSocket, sync::broadcast};
 use uuid::Uuid;
@@ -45,6 +50,8 @@ impl RecordingTrack {
         port: u16,
         track_id: String,
         rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
+        init_sequence: Arc<AtomicU16>,
+        init_timestamp: Arc<AtomicU32>,
     ) {
         let mut rtp_receiver = rtp_sender.subscribe();
         drop(rtp_sender);
@@ -57,6 +64,9 @@ impl RecordingTrack {
 
         let addr = format!("{}:{}", ip, port);
 
+        let mut current_timestamp = init_timestamp.load(Ordering::Relaxed);
+        let mut last_sequence_number: u16 = init_sequence.load(Ordering::Relaxed);
+
         loop {
             tokio::select! {
                 _ = closed_receiver.recv() => {
@@ -64,8 +74,14 @@ impl RecordingTrack {
                 }
                 res = rtp_receiver.recv() => {
                     match res {
-                        Ok((packet, _layer)) => {
+                        Ok((mut packet, _layer)) => {
                             tracing::trace!("Sending recording packet: {}", track_id);
+
+                            current_timestamp += packet.header.timestamp;
+                            packet.header.timestamp = current_timestamp;
+                            last_sequence_number = last_sequence_number.wrapping_add(1);
+                            packet.header.sequence_number = last_sequence_number;
+
                             match packet.marshal() {
                                 Ok(send_buf) => {
                                     if let Err(err) = self.socket.send_to(&send_buf, addr.clone()).await {
@@ -87,6 +103,9 @@ impl RecordingTrack {
                 }
             }
         }
+
+        init_sequence.store(last_sequence_number, Ordering::Relaxed);
+        init_timestamp.store(current_timestamp, Ordering::Relaxed);
 
         tracing::debug!(
             "RecordingTrack sender track_id={} RTP loop has finished",

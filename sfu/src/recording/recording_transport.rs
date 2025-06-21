@@ -1,15 +1,21 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU16, AtomicU32},
+    Arc,
+};
 
 use derivative::Derivative;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use webrtc::sdp::{
-    self,
-    description::{
-        common::{Address, Attribute, ConnectionInformation},
-        media::MediaName,
+use webrtc::{
+    rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication,
+    sdp::{
+        self,
+        description::{
+            common::{Address, Attribute, ConnectionInformation},
+            media::MediaName,
+        },
+        MediaDescription, SessionDescription,
     },
-    MediaDescription, SessionDescription,
 };
 
 use crate::{
@@ -53,6 +59,23 @@ impl RecordingTransport {
 
     pub async fn generate_sdp(&self, publisher_id: String) -> Result<String, Error> {
         let local_track = self.find_local_track(publisher_id, RID::HIGH).await?;
+
+        let attributes = vec![
+            Attribute::new(
+                "rtpmap".to_string(),
+                Some(Self::rtpmap(local_track.clone())),
+            ),
+            Attribute::new(
+                "fmtp".to_string(),
+                Some(format!(
+                    "{} {}",
+                    local_track.payload_type(),
+                    local_track.capability().sdp_fmtp_line
+                )),
+            ),
+            Attribute::new("sendonly".to_string(), None),
+        ];
+
         let media_description = MediaDescription {
             media_name: MediaName {
                 media: "video".to_string(),
@@ -67,13 +90,7 @@ impl RecordingTransport {
             connection_information: None,
             bandwidth: vec![],
             encryption_key: None,
-            attributes: vec![
-                Attribute::new(
-                    "rtpmap".to_string(),
-                    Some(Self::rtpmap(local_track.clone())),
-                ),
-                Attribute::new("sendonly".to_string(), None),
-            ],
+            attributes: attributes,
         };
         let session_description = SessionDescription {
             version: 0,
@@ -122,6 +139,8 @@ impl RecordingTransport {
         publisher_id: String,
     ) -> Result<Arc<RecordingTrack>, Error> {
         let local_track = self.find_local_track(publisher_id, RID::HIGH).await?;
+        let publisher_rtcp_sender = local_track.rtcp_sender().clone();
+        let media_ssrc = local_track.ssrc();
 
         let ip = self.ip_address.clone();
         let port = self.port;
@@ -129,8 +148,21 @@ impl RecordingTransport {
         let rtp_packet_sender = local_track.rtp_packet_sender();
         let recording_track = self.recording_track.clone();
         tokio::spawn(async move {
+            let init_sequence = Arc::new(AtomicU16::new(0));
+            let init_timestamp = Arc::new(AtomicU32::new(0));
+            let _ = publisher_rtcp_sender.send(Box::new(PictureLossIndication {
+                sender_ssrc: 0,
+                media_ssrc,
+            }));
             recording_track
-                .rtp_sender_loop(ip, port, track_id, rtp_packet_sender)
+                .rtp_sender_loop(
+                    ip,
+                    port,
+                    track_id,
+                    rtp_packet_sender,
+                    init_sequence,
+                    init_timestamp,
+                )
                 .await;
         });
 
@@ -142,11 +174,6 @@ impl RecordingTransport {
         publisher_id: String,
         rid: RID,
     ) -> Result<Arc<dyn Track>, Error> {
-        tracing::debug!(
-            "find_local_track called for publisher_id: {}, rid: {:?}",
-            publisher_id,
-            rid
-        );
         match Router::find_local_track(
             self.router_event_sender.clone(),
             publisher_id.clone(),
@@ -154,10 +181,7 @@ impl RecordingTransport {
         )
         .await
         {
-            Ok(track) => {
-                tracing::debug!("found");
-                Ok(track)
-            }
+            Ok(track) => Ok(track),
             Err(err) => {
                 tracing::warn!("find_local_track error: {}", err);
                 match Router::find_relayed_track(

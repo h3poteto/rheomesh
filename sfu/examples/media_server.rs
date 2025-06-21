@@ -103,6 +103,7 @@ struct WebSocket {
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     subscribers: Arc<Mutex<HashMap<String, Arc<Mutex<Subscriber>>>>>,
+    recording_transport: Arc<Option<RecordingTransport>>,
 }
 
 impl WebSocket {
@@ -131,6 +132,16 @@ impl WebSocket {
 
         let publish_transport = router.create_publish_transport(config.clone()).await;
         let subscribe_transport = router.create_subscribe_transport(config).await;
+
+        let recording_host = env::var("RECORDING_HOST").unwrap_or("127.0.0.1".to_string());
+        let recording_port = env::var("RECORDING_PORT")
+            .unwrap_or("15000".to_string())
+            .parse::<u16>()
+            .expect("RECORDING_PORT must be a valid port number");
+        let recording_transport = router
+            .create_recording_transport(recording_host, recording_port)
+            .await
+            .ok();
         Self {
             owner,
             room,
@@ -138,6 +149,7 @@ impl WebSocket {
             subscribe_transport: Arc::new(subscribe_transport),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             subscribers: Arc::new(Mutex::new(HashMap::new())),
+            recording_transport: Arc::new(recording_transport),
         }
     }
 }
@@ -390,43 +402,41 @@ impl Handler<ReceivedMessage> for WebSocket {
                 });
             }
             ReceivedMessage::Record { publisher_id } => {
-                let router = self.room.router.clone();
+                let recording_transport = self.recording_transport.clone();
                 actix::spawn(async move {
-                    let mut rt: Option<RecordingTransport> = None;
-                    {
-                        let recording_host =
-                            env::var("RECORDING_HOST").expect("RECORDING_HOST is required");
-                        let recording_port: u16 = env::var("RECORDING_PORT")
-                            .expect("RECORDING_PORT is required")
-                            .parse()
-                            .expect("RECORDING_PORT must be a valid port number");
-                        let router = router.lock().await;
-                        if let Ok(transport) = router
-                            .create_recording_transport(recording_host, recording_port)
-                            .await
-                        {
-                            rt = Some(transport);
-                        }
-                    }
-                    match rt {
+                    match recording_transport.as_ref() {
                         Some(transport) => match transport.generate_sdp(publisher_id.clone()).await
                         {
                             Ok(sdp) => {
                                 tracing::info!("Generated SDP for recording: \n{}", sdp);
-                                // Send the SDP to the client
-                                /*
-                                if let Err(err) = transport.start_recording(publisher_id).await {
-                                    tracing::error!("Failed to start recording: {}", err);
-                                }
-                                */
+                                address.do_send(SendingMessage::RecordingSDP { sdp });
                             }
                             Err(err) => {
                                 tracing::error!("Failed to generate SDP for recording: {}", err);
+                                address.do_send(SendingMessage::RecordingError {
+                                    error: err.to_string(),
+                                });
                             }
                         },
                         None => {
                             tracing::error!("Failed to create recording transport");
+                            address.do_send(SendingMessage::RecordingError {
+                                error: "Recording transport is not available".to_string(),
+                            });
                         }
+                    }
+                });
+            }
+            ReceivedMessage::StartRecording { publisher_id } => {
+                let recording_transport = self.recording_transport.clone();
+                actix::spawn(async move {
+                    if let Some(transport) = recording_transport.as_ref() {
+                        match transport.start_recording(publisher_id).await {
+                            Ok(_) => tracing::info!("Recording started successfully"),
+                            Err(err) => tracing::error!("Failed to start recording: {}", err),
+                        }
+                    } else {
+                        tracing::error!("Recording transport is not available");
                     }
                 });
             }
@@ -488,6 +498,8 @@ enum ReceivedMessage {
     RestartICE,
     #[serde(rename_all = "camelCase")]
     Record { publisher_id: String },
+    #[serde(rename_all = "camelCase")]
+    StartRecording { publisher_id: String },
 }
 
 #[derive(Serialize, Message, Debug)]
@@ -510,6 +522,10 @@ enum SendingMessage {
     Published { publisher_ids: Vec<String> },
     #[serde(rename_all = "camelCase")]
     Subscribed { subscriber_id: String },
+    #[serde(rename_all = "camelCase")]
+    RecordingSDP { sdp: String },
+    #[serde(rename_all = "camelCase")]
+    RecordingError { error: String },
 }
 
 #[derive(Message, Debug)]
@@ -652,117 +668,117 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
         },
     ];
     return vec![
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "".to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 96,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "profile-id=0".to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 98,
+        //     ..Default::default()
+        // },
+        // RTCRtpCodecParameters {
+        //     capability: RTCRtpCodecCapability {
+        //         mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
+        //         clock_rate: 90000,
+        //         channels: 0,
+        //         sdp_fmtp_line: "profile-id=1".to_owned(),
+        //         rtcp_feedback: video_rtcp_feedback.clone(),
+        //     },
+        //     payload_type: 100,
+        //     ..Default::default()
+        // },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
+                mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
-                sdp_fmtp_line: "".to_owned(),
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"
+                        .to_owned(),
                 rtcp_feedback: video_rtcp_feedback.clone(),
             },
-            payload_type: 96,
+            payload_type: 102,
             ..Default::default()
         },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
+                mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
-                sdp_fmtp_line: "profile-id=0".to_owned(),
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
+                        .to_owned(),
                 rtcp_feedback: video_rtcp_feedback.clone(),
             },
-            payload_type: 98,
+            payload_type: 127,
             ..Default::default()
         },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
-                mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
+                mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
-                sdp_fmtp_line: "profile-id=1".to_owned(),
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                        .to_owned(),
                 rtcp_feedback: video_rtcp_feedback.clone(),
             },
-            payload_type: 100,
+            payload_type: 125,
             ..Default::default()
         },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 102,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 127,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 125,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 108,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 127,
-        //     ..Default::default()
-        // },
-        // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
-        //         mime_type: media_engine::MIME_TYPE_H264.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line:
-        //             "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640032"
-        //                 .to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 123,
-        //     ..Default::default()
-        // },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: media_engine::MIME_TYPE_H264.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f"
+                        .to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 108,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: media_engine::MIME_TYPE_H264.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f"
+                        .to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 127,
+            ..Default::default()
+        },
+        RTCRtpCodecParameters {
+            capability: RTCRtpCodecCapability {
+                mime_type: media_engine::MIME_TYPE_H264.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640032"
+                        .to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 123,
+            ..Default::default()
+        },
         RTCRtpCodecParameters {
             capability: RTCRtpCodecCapability {
                 mime_type: media_engine::MIME_TYPE_AV1.to_owned(),
