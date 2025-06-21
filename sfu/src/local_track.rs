@@ -6,6 +6,7 @@ use rtp::packetizer::Depacketizer;
 use tokio::sync::{broadcast, mpsc};
 use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
 use webrtc::rtp::{self};
+use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
 use webrtc::{
     rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
     track::track_remote::TrackRemote,
@@ -252,6 +253,14 @@ impl Track for LocalTrack {
 
     fn mime_type(&self) -> String {
         self.track.codec().capability.mime_type.clone()
+    }
+
+    fn payload_type(&self) -> webrtc::rtp_transceiver::PayloadType {
+        self.track.payload_type().into()
+    }
+
+    fn parameters(&self) -> RTCRtpCodecParameters {
+        self.track.codec().clone()
     }
 
     fn capability(&self) -> webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability {

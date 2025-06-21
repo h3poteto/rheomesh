@@ -149,7 +149,7 @@ impl RelayServer {
                             data.ssrc,
                             data.rid,
                             data.mime_type,
-                            data.codec_capability.into(),
+                            data.codec_parameters.into(),
                             data.stream_id,
                         );
                     } else {
@@ -162,7 +162,7 @@ impl RelayServer {
                                 data.ssrc,
                                 data.rid,
                                 data.mime_type,
-                                data.codec_capability.into(),
+                                data.codec_parameters.into(),
                                 data.stream_id,
                             );
                         }

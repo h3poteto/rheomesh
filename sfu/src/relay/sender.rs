@@ -3,7 +3,7 @@ use tokio::{
     net::{TcpStream, UdpSocket},
     sync::broadcast,
 };
-use webrtc::{rtp, rtp_transceiver::rtp_codec::RTCRtpCodecCapability};
+use webrtc::{rtp, rtp_transceiver::rtp_codec::RTCRtpCodecParameters};
 
 use crate::{
     error::{self, Error},
@@ -15,7 +15,7 @@ use crate::{
     rtp::layer::Layer,
 };
 
-use super::data::RTCRtpCodecCapabilitySerializable;
+use super::data::RTCRtpCodecParametersSerializable;
 
 #[derive(Debug)]
 pub(crate) struct RelaySender {
@@ -36,7 +36,7 @@ impl RelaySender {
         router_id: String,
         track_id: String,
         ssrc: u32,
-        codec_capability: RTCRtpCodecCapability,
+        codec_parameters: RTCRtpCodecParameters,
         stream_id: String,
         mime_type: String,
         rid: String,
@@ -50,7 +50,7 @@ impl RelaySender {
             router_id,
             track_id,
             ssrc,
-            codec_capability: codec_capability.into(),
+            codec_parameters: codec_parameters.into(),
             stream_id,
             mime_type,
             rid,
@@ -96,7 +96,7 @@ impl RelaySender {
             router_id,
             track_id,
             ssrc: 0,
-            codec_capability: RTCRtpCodecCapabilitySerializable::default(),
+            codec_parameters: RTCRtpCodecParametersSerializable::default(),
             stream_id: "".to_owned(),
             mime_type: "".to_owned(),
             rid: "".to_owned(),

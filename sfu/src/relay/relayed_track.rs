@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc};
 use webrtc::rtp;
-use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
+use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters};
+use webrtc::rtp_transceiver::PayloadType;
 
 use crate::rtp::layer::Layer;
 use crate::track::Track;
@@ -16,7 +17,7 @@ pub struct RelayedTrack {
     ssrc: u32,
     rid: String,
     mime_type: String,
-    codec_capability: RTCRtpCodecCapability,
+    codec_parameters: RTCRtpCodecParameters,
     stream_id: String,
     rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
     rtcp_sender: Arc<transport::RtcpSender>,
@@ -28,7 +29,7 @@ impl RelayedTrack {
         ssrc: u32,
         rid: String,
         mime_type: String,
-        codec_capability: RTCRtpCodecCapability,
+        codec_parameters: RTCRtpCodecParameters,
         stream_id: String,
     ) -> Self {
         let (sender, _reader) = broadcast::channel::<(rtp::packet::Packet, Layer)>(1024);
@@ -45,7 +46,7 @@ impl RelayedTrack {
             ssrc,
             rid,
             mime_type,
-            codec_capability,
+            codec_parameters,
             stream_id,
             rtp_packet_sender: sender,
             rtcp_sender: Arc::new(rtcp_sender),
@@ -74,8 +75,16 @@ impl Track for RelayedTrack {
         self.mime_type.clone()
     }
 
+    fn payload_type(&self) -> PayloadType {
+        self.codec_parameters.payload_type.clone().into()
+    }
+
+    fn parameters(&self) -> RTCRtpCodecParameters {
+        self.codec_parameters.clone().into()
+    }
+
     fn capability(&self) -> RTCRtpCodecCapability {
-        self.codec_capability.clone().into()
+        self.codec_parameters.capability.clone().into()
     }
 
     fn id(&self) -> String {

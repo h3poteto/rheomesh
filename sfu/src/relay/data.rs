@@ -3,7 +3,10 @@ use bytes::{Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use webrtc::{
     rtp,
-    rtp_transceiver::{rtp_codec::RTCRtpCodecCapability, RTCPFeedback},
+    rtp_transceiver::{
+        rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters},
+        PayloadType, RTCPFeedback,
+    },
     util::marshal::Marshal,
 };
 use webrtc_util::Unmarshal;
@@ -15,12 +18,19 @@ pub(crate) struct TrackData {
     pub(crate) router_id: String,
     pub(crate) track_id: String,
     pub(crate) ssrc: u32,
-    pub(crate) codec_capability: RTCRtpCodecCapabilitySerializable,
+    pub(crate) codec_parameters: RTCRtpCodecParametersSerializable,
     pub(crate) stream_id: String,
     pub(crate) mime_type: String,
     pub(crate) rid: String,
     pub(crate) closed: bool,
     pub(crate) publisher_type: PublisherType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct RTCRtpCodecParametersSerializable {
+    capability: RTCRtpCodecCapabilitySerializable,
+    payload_type: PayloadType,
+    stats_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -52,6 +62,26 @@ impl From<RTCPFeedbackSerializable> for RTCPFeedback {
         Self {
             typ: value.typ,
             parameter: value.parameter,
+        }
+    }
+}
+
+impl From<RTCRtpCodecParameters> for RTCRtpCodecParametersSerializable {
+    fn from(value: RTCRtpCodecParameters) -> Self {
+        Self {
+            capability: value.capability.into(),
+            payload_type: value.payload_type,
+            stats_id: value.stats_id,
+        }
+    }
+}
+
+impl From<RTCRtpCodecParametersSerializable> for RTCRtpCodecParameters {
+    fn from(value: RTCRtpCodecParametersSerializable) -> Self {
+        Self {
+            capability: value.capability.into(),
+            payload_type: value.payload_type,
+            stats_id: value.stats_id,
         }
     }
 }
