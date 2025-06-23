@@ -7,6 +7,7 @@ use crate::{
     local_track::LocalTrack,
     publish_transport::PublishTransport,
     publisher::Publisher,
+    recording::recording_transport::RecordingTransport,
     relay::{
         relayed_publisher::RelayedPublisher, relayed_track::RelayedTrack, sender::RelaySender,
     },
@@ -103,6 +104,15 @@ impl Router {
         SubscribeTransport::new(tx, self.media_config.clone(), transport_config).await
     }
 
+    pub async fn create_recording_transport(
+        &self,
+        ip: String,
+        port: u16,
+    ) -> Result<RecordingTransport, Error> {
+        let tx = self.router_event_sender.clone();
+        RecordingTransport::new(ip, port, tx).await
+    }
+
     pub(crate) async fn router_event_loop(
         id: String,
         router: Arc<Mutex<Router>>,
@@ -120,7 +130,9 @@ impl Router {
                     r.publishers.retain(|(id, _)| *id != track_id);
                 }
                 RouterEvent::GetPublisher(track_id, reply_sender) => {
+                    tracing::debug!("getting router lock");
                     let r = router.lock().await;
+                    tracing::debug!("got router lock");
                     let track = r
                         .publishers
                         .iter()
