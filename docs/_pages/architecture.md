@@ -4,15 +4,9 @@ title: Architecture
 mermaid: true
 ---
 
-<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-<script>
-  mermaid.initialize({
-    startOnLoad: true,
-    theme: 'default'
-  });
-</script>
 
-<div class="mermaid">
+
+```mermaid
 graph LR
 subgraph SFU
     W[Worker] --> R1[Router]
@@ -39,5 +33,4 @@ subgraph Browser2
 end
 PC1 -->|RTP| PS1
 SS2 -->|RTP| SC2
-</div>
-
+```
