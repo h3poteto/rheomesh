@@ -1,0 +1,20 @@
+services:
+  jekyll:
+    image: ghcr.io/ledermann/rails-base-builder:3.0.0-alpine
+    working_dir: /site
+    volumes:
+      - .:/site
+      - cache:/usr/local/bundle
+    ports:
+      - "4000:4000"
+    command: >
+      sh -c "
+        apk update &&
+        apk add --no-cache build-base &&
+        bundle install &&
+        bundle exec jekyll serve --host 0.0.0.0 --livereload
+      "
+
+volumes:
+  cache:
+    driver: local
