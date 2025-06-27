@@ -1,20 +1,17 @@
 ---
 layout: post
-title: Getting Started
+title: Installation
 ---
 
-# Installation
 
-## Server-side SDK
+# Server-side SDK
 Add `rheomesh` to your `Cargo.toml` file.
 
 ```toml
 [dependencies]
 rheomesh = { version = "0" }
 ```
-## Client-side
+# Client-side
 ```
 $ npm install -S rheomesh
 ```
-
-# Usage
