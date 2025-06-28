@@ -37,7 +37,7 @@ jobs:
         registry-url: 'https://registry.npmjs.org'
     - name: Copy README
       run: |
-        cp README.md ./rheomesh/
+        cp ../README.md ./rheomesh/
         cp ../LICENSE ./rheomesh/
     - name: Install dependencies
       run: |
