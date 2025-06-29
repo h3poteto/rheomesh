@@ -15,7 +15,7 @@ Rheomesh is a WebRTC SFU ([Selective Forwarding Unit](https://bloggeek.me/webrtc
 - [x] Simulcast
 - [ ] Scalable Video Coding (SVC)
 - [x] Relay
-- [ ] Recording
+- [x] Recording
 
 # Document
 Please check https://h3poteto.github.io/rheomesh/
