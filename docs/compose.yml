@@ -6,7 +6,7 @@ services:
       - .:/site
       - cache:/usr/local/bundle
     ports:
-      - "4000:4000"
+      - "4001:4000"
     command: >
       sh -c "
         apk update &&

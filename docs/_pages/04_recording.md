@@ -49,12 +49,24 @@ $ ffmpeg -protocol_whitelist file,rtp,udp -i stream.sdp -c copy output.mkv
 ## Using GStreamer
 For playback:
 ```bash
-$ gst-launch-1.0 filesrc location=stream.sdp ! sdpdemux ! decodebin ! autovideosink
+$ gst-launch-1.0 udpsrc port=30001 ! \
+  application/x-rtp,payload=103,encoding-name=H264 ! \
+  rtph264depay ! \
+  h264parse ! \
+  avdec_h264 ! \
+  videoconvert ! \
+  autovideosink
 ```
 
 For recording to file:
 ```bash
-$ gst-launch-1.0 filesrc location=stream.sdp ! sdpdemux ! matroskamux ! filesink location=output.mkv
+$ gst-launch-1.0 udpsrc port=30001 ! \
+  application/x-rtp,payload=103,encoding-name=H264 ! \
+  rtph264depay ! \
+  h264parse ! \
+  avdec_h264 ! \
+  matroskamux ! \
+  filesink location=output.mkv
 ```
 
 # Start transporting packets
