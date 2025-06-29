@@ -3,13 +3,29 @@ layout: post
 title: Getting Started
 ---
 
+# Architecture Overview
+
+Rheomesh uses a hierarchical structure for managing media streaming:
+
+- **Worker**: The top-level container that manages system resources. Create one Worker per server process.
+- **Router**: A media routing unit that handles multiple transports. Think of it as a "meeting room" where participants can exchange media.
+- **Transport**: Individual connections for publishing or subscribing to media streams.
+
+```
+Worker (one per server)
+ └── Router (meeting room)
+     ├── PublishTransport (sends media)
+     ├── SubscribeTransport (receives media)
+     └── RecordingTransport (records media)
+```
+
 # Create router and transports
 ## Server side
-First of all, please create a [worker](https://docs.rs/rheomesh/latest/rheomesh/worker/struct.Worker.html) and [router](https://docs.rs/rheomesh/latest/rheomesh/router/struct.Router.html). Worker accomodates multiple routers. You only need to launch one worker per server. Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
+First, create a [Worker](https://docs.rs/rheomesh/latest/rheomesh/worker/struct.Worker.html) and [Router](https://docs.rs/rheomesh/latest/rheomesh/router/struct.Router.html). All media communication happens within the same Router.
 
 ```rust
 use rheomesh::worker::Worker;
-use rheomesh::config::{WorkerConfig};
+use rheomesh::config::{WorkerConfig, MediaConfig};
 
 //...
 
@@ -24,7 +40,8 @@ async fn new() {
 Next, please create publish and subscribe transports.
 
 ```rust
-use rheomesh::config::WebRTCTransportConfig
+use rheomesh::config::WebRTCTransportConfig;
+use webrtc::ice_transport::ice_server::RTCIceServer;
 
 async fn new() {
   //...
@@ -33,8 +50,8 @@ async fn new() {
     urls: vec!["stun:stun.l.google.com:19302".to_owned()],
     ..Default::default()
   }];
-  let publish_transport = router.lock().await.create_publish_transport(config.clone()).await;
-  let subscribe_transport = router.lock().await.create_subscribe_transport(config.clone()).await;
+  let publish_transport = router.create_publish_transport(config.clone()).await;
+  let subscribe_transport = router.create_subscribe_transport(config.clone()).await;
 }
 ```
 
@@ -101,7 +118,7 @@ stream.getTracks().forEach(async (track) => {
   const publisher = await publishTransport.publish(track)
   const offer = publisher.offer
   // Send `offer` to server. The server has to call `get_answer` method with this parameter.
-  const publisherId = publisher.id
+  const publisherId = publisher.id  // This ID uniquely identifies the publisher
   // Send `publisherId` to server. The server has to call `publish` method with this parameter.
 })
 ```
@@ -118,7 +135,9 @@ let answer = publish_transport
 ```
 
 ```rust
+// `publisher_id` is the same value as `publisherId` received from client
 let publisher = publish_transport.publish(publisher_id).await;
+// `publisher` contains the media track that can be used for subscription or recording
 ```
 
 ### Handle `answer` in client side
@@ -144,6 +163,7 @@ subscribe_transport
   .on_negotiation_needed(Box::new(move |offer| {
     // Send `offer` message to client. The client has to call `setOffer` method.
   }))
+  .await;
 ```
 
 ### Client side
@@ -173,6 +193,8 @@ let _ = subscribe_transport
 When you get [track](https://docs.rs/rheomesh/latest/rheomesh/track/trait.Track.html) from the [publisher](https://docs.rs/rheomesh/latest/rheomesh/publisher/struct.Publisher.html), please call `subscribe` method.
 
 ```rust
+// Get track_id from the publisher created above
+let track_id = publisher.track().id();
 let (subscriber, offer) = subscribe_transport
   .subscribe(track_id)
   .await
@@ -197,6 +219,7 @@ let _ = subscribe_transport
 
 ### Client side `subscribe`
 ```typescript
+// Use the same `publisherId` that was sent to server earlier
 subscribeTransport.subscribe(publisherId).then((subscriber) => {
   const stream = new MediaStream([subscriber.track])
   remoteVideo.srcObject = stream
