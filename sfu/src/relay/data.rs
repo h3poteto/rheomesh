@@ -1,3 +1,4 @@
+use bincode::{Decode, Encode};
 use bytes::{Bytes, BytesMut};
 
 use serde::{Deserialize, Serialize};
@@ -108,6 +109,11 @@ impl From<RTCRtpCodecCapabilitySerializable> for RTCRtpCodecCapability {
             rtcp_feedback: value.rtcp_feedback.into_iter().map(|f| f.into()).collect(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+pub(crate) struct UDPStarted {
+    pub(crate) port: u16,
 }
 
 #[derive(Debug, Clone)]

@@ -39,6 +39,8 @@ impl RelayedPublisher {
 
         let publisher = Arc::new(Mutex::new(publisher));
 
+        tracing::debug!("RelayedPublisher {} created", track_id,);
+
         {
             let publisher = publisher.clone();
             tokio::spawn(async move {
@@ -60,7 +62,7 @@ impl RelayedPublisher {
     ) {
         if let None = self.local_tracks.get(&ssrc) {
             let local_track = RelayedTrack::new(
-                track_id,
+                track_id.clone(),
                 ssrc,
                 rid.clone(),
                 mime_type,
@@ -71,9 +73,15 @@ impl RelayedPublisher {
                 .publisher_event_sender
                 .send(RelayedPublisherEvent::TrackAdded(
                     ssrc,
-                    rid,
+                    rid.clone(),
                     Arc::new(local_track),
                 ));
+            tracing::debug!(
+                "RelayedTrack is created with track_id={}, ssrc={}, rid={}",
+                track_id,
+                ssrc,
+                rid
+            );
         }
     }
 
