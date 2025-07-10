@@ -33,7 +33,7 @@ pub struct Publisher {
     subscriber_event_sender: Vec<mpsc::UnboundedSender<SubscriberEvent>>,
     relay_sender: Arc<RelaySender>,
     relayed_targets: Vec<(String, u16, String)>,
-    relayed_publishers: HashMap<u32, String>,
+    relayed_publishers: HashMap<u32, (String, u16)>,
 }
 
 impl Publisher {
@@ -177,7 +177,8 @@ impl Publisher {
                             .await
                         {
                             Ok(udp_port) => {
-                                p.relayed_publishers.insert(ssrc, ip.clone());
+                                p.relayed_publishers
+                                    .insert(ssrc, (ip.clone(), udp_port.clone()));
                                 let rtp_packet_sender = local_track.rtp_packet_sender();
                                 let event_sender = p.publisher_event_sender.clone();
                                 tokio::spawn(async move {
@@ -279,13 +280,17 @@ impl Publisher {
                 .await?;
             let rtp_packet_sender = local_track.rtp_packet_sender();
 
-            if let Some(_) = self.relayed_publishers.get(ssrc).and_then(|saved_ip| {
-                if *saved_ip == ip {
-                    Some(())
-                } else {
-                    None
-                }
-            }) {
+            if let Some(_) = self
+                .relayed_publishers
+                .get(ssrc)
+                .and_then(|(saved_ip, saved_port)| {
+                    if *saved_ip == ip && *saved_port == udp_port {
+                        Some(())
+                    } else {
+                        None
+                    }
+                })
+            {
                 tracing::info!(
                     "Track trac_id={} ssrc={} already relayed to {}:{}",
                     self.track_id,
@@ -307,7 +312,8 @@ impl Publisher {
                     let _ = event_sender.send(PublisherEvent::RTPSenderLoopClosed(ssrc));
                 });
             }
-            self.relayed_publishers.insert(ssrc.clone(), ip.clone());
+            self.relayed_publishers
+                .insert(ssrc.clone(), (ip.clone(), udp_port));
         }
 
         self.relayed_targets.push((ip, port, router_id));

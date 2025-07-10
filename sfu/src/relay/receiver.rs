@@ -130,8 +130,10 @@ impl RelayServer {
                 router_publisher.lock().await.remove(&publisher_id);
                 if router_publisher.lock().await.is_empty() {
                     // Stop UDP receiver server if no publishers left
-                    if let Some(udp_server) = self.udp_servers.lock().await.get(&router_id) {
+                    let mut servers = self.udp_servers.lock().await;
+                    if let Some(udp_server) = servers.get(&router_id) {
                         udp_server.lock().await.close();
+                        servers.remove(&router_id);
                     }
                     publishers.remove(&router_id);
                 }
