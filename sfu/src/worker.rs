@@ -42,13 +42,8 @@ impl Worker {
         }
 
         {
-            let relay_server = RelayServer::new(
-                config.relay_server_udp_port,
-                config.relay_server_tcp_port,
-                worker.clone(),
-                stop_sender,
-            )
-            .await?;
+            let relay_server =
+                RelayServer::new(config.relay_server_tcp_port, worker.clone(), stop_sender).await?;
             let relay_server = Arc::new(relay_server);
 
             {
@@ -59,12 +54,6 @@ impl Worker {
                     }
                 });
             }
-
-            tokio::spawn(async move {
-                if let Err(err) = relay_server.run_udp().await {
-                    tracing::error!("Relay server UDP error: {}", err);
-                }
-            });
         }
 
         Ok(worker)

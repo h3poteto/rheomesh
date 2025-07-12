@@ -6,7 +6,7 @@ const config: PlaywrightTestConfig = {
   workers: 1,
   use: {
     locale: "en-US",
-    headless: true,
+    headless: process.env.HEADLESS !== "false",
   },
   projects: [
     {

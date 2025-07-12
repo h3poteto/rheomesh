@@ -1,6 +1,12 @@
-use port_check::free_local_port_in_range;
+use openport::{is_free_udp, pick_unused_port};
 
 pub(crate) fn find_unused_port() -> Option<u16> {
-    let free_port = free_local_port_in_range(10000..=65535);
-    free_port
+    for _n in 0..100 {
+        if let Some(port) = pick_unused_port(15000..65535) {
+            if is_free_udp(port) {
+                return Some(port);
+            }
+        }
+    }
+    None
 }

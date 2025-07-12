@@ -66,9 +66,14 @@ impl RelaySender {
         match bincode::decode_from_slice(&buf, bincode::config::standard()) {
             Ok((response, _len)) => {
                 let received: TCPResponse = response;
-                if let Some(port) = received.port {
-                    return Ok(port);
+                if let Some(udp_started) = received.udp_started {
+                    tracing::debug!(
+                        "Relay track created successfully with UDP port: {}",
+                        udp_started.port
+                    );
+                    return Ok(udp_started.port);
                 } else {
+                    tracing::error!("Failed to create relay track: {}", received.status);
                     return Err(Error::new_relay(
                         "UDP port not found".to_string(),
                         error::RelayErrorKind::RelaySenderError,
@@ -109,11 +114,22 @@ impl RelaySender {
         let mut buf = Vec::with_capacity(4096);
         stream.read_buf(&mut buf).await?;
 
-        let received = String::from_utf8(buf).unwrap();
-        if received == "ok" {
-            Ok(true)
-        } else {
-            Ok(false)
+        match bincode::decode_from_slice(&buf, bincode::config::standard()) {
+            Ok((response, _len)) => {
+                let received: TCPResponse = response;
+                if received.status == "ok" {
+                    return Ok(true);
+                } else {
+                    return Err(Error::new_relay(
+                        "Failed to remove relay publisher".to_string(),
+                        error::RelayErrorKind::RelaySenderError,
+                    ));
+                }
+            }
+            Err(err) => {
+                tracing::error!("Failed to decode TCP response: {}", err);
+                return Err(Error::from(err));
+            }
         }
     }
 
