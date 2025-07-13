@@ -16,6 +16,10 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+    - name: Copy README
+      run: |
+        cp ../README.md ./
+        cp ../LICENSE ./
     - name: Publish
       env:
         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
