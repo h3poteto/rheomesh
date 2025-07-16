@@ -16,13 +16,14 @@ pub struct Worker {
     relay_sender: Arc<RelaySender>,
     stop_sender: broadcast::Sender<bool>,
     worker_event_sender: mpsc::UnboundedSender<WorkerEvent>,
+    private_ip: String,
 }
 
 impl Worker {
     /// Creates a new worker with the given configuration. And starts the relay server.
     pub async fn new(config: WorkerConfig) -> Result<Arc<Mutex<Self>>, Error> {
         let (stop_sender, _rx) = broadcast::channel(1);
-        let relay_sender = RelaySender::new(config.relay_sender_port).await?;
+        let relay_sender = RelaySender::new().await;
         let (tx, rx) = mpsc::unbounded_channel::<WorkerEvent>();
 
         let worker = Self {
@@ -30,6 +31,7 @@ impl Worker {
             relay_sender: Arc::new(relay_sender),
             stop_sender: stop_sender.clone(),
             worker_event_sender: tx,
+            private_ip: config.private_ip.clone(),
         };
 
         let worker = Arc::new(Mutex::new(worker));
@@ -65,6 +67,7 @@ impl Worker {
             media_config,
             self.relay_sender.clone(),
             self.worker_event_sender.clone(),
+            self.private_ip.clone(),
         );
         self.routers.insert(id, router.clone());
         router

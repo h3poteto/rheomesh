@@ -31,8 +31,6 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig {
-        relay_sender_port: 9441,
-        relay_server_udp_port: 9442,
         relay_server_tcp_port: 9443,
     })
     .await

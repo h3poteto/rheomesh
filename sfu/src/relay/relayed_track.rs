@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use webrtc::rtp;
 use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters};
 use webrtc::rtp_transceiver::PayloadType;
@@ -31,15 +31,9 @@ impl RelayedTrack {
         mime_type: String,
         codec_parameters: RTCRtpCodecParameters,
         stream_id: String,
+        rtcp_sender: Arc<transport::RtcpSender>,
     ) -> Self {
         let (sender, _reader) = broadcast::channel::<(rtp::packet::Packet, Layer)>(1024);
-        // For relayed track, RTCP will not work properly.
-        // Even though it receives RTCP packets, this server doesn't send it to the source publisher.
-        // So, this rtcp_sender is dummy.
-        let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
-        tokio::spawn(async move {
-            Self::rtcp_event_loop(rtcp_receiver).await;
-        });
 
         Self {
             id,
@@ -49,15 +43,7 @@ impl RelayedTrack {
             codec_parameters,
             stream_id,
             rtp_packet_sender: sender,
-            rtcp_sender: Arc::new(rtcp_sender),
-        }
-    }
-
-    async fn rtcp_event_loop(mut rtcp_receiver: transport::RtcpReceiver) {
-        loop {
-            if let Some(data) = rtcp_receiver.recv().await {
-                tracing::trace!("Relayed rtcp: {}", data);
-            }
+            rtcp_sender,
         }
     }
 }

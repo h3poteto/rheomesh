@@ -258,9 +258,16 @@ impl RelayServer {
     }
 
     async fn create_publisher(&self, data: &TrackData) -> Arc<Mutex<RelayedPublisher>> {
-        let publisher = RelayedPublisher::new(data.track_id.clone(), data.publisher_type.clone());
+        let rtcp_ip = data.ip.clone().unwrap();
+        let rtcp_port = data.udp_port.unwrap_or(0);
+        let publisher = RelayedPublisher::new(
+            data.track_id.clone(),
+            data.publisher_type.clone(),
+            rtcp_ip,
+            rtcp_port,
+        );
         {
-            let publisher = publisher.lock().await;
+            let mut publisher = publisher.lock().await;
             publisher.create_relayed_track(
                 data.track_id.clone(),
                 data.ssrc,

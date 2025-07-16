@@ -36,14 +36,6 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let worker = rheomesh::worker::Worker::new(rheomesh::config::WorkerConfig {
-        relay_sender_port: env::var("RELAY_SENDER_PORT")
-            .unwrap_or_else(|_| "9441".to_string())
-            .parse()
-            .expect("Failed to parse RELAY_SENDER_PORT"),
-        relay_server_udp_port: env::var("RELAY_SERVER_UDP_PORT")
-            .unwrap_or_else(|_| "9442".to_string())
-            .parse()
-            .expect("Failed to parse RELAY_SERVER_UDP_PORT"),
         relay_server_tcp_port: env::var("RELAY_SERVER_TCP_PORT")
             .unwrap_or_else(|_| "9443".to_string())
             .parse()

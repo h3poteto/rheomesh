@@ -1,12 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::{
+    net::UdpSocket,
+    sync::{broadcast, mpsc, Mutex},
+};
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
 
 use crate::{
-    error::{Error, PublisherErrorKind},
+    error::{Error, PublisherErrorKind, RelayErrorKind},
     publisher::PublisherType,
     track::Track,
+    transport,
+    utils::ports::find_unused_port,
 };
 
 use super::relayed_track::RelayedTrack;
@@ -20,14 +25,20 @@ pub struct RelayedPublisher {
     publisher_event_sender: mpsc::UnboundedSender<RelayedPublisherEvent>,
     rid_to_ssrc: HashMap<String, u32>,
     pub publisher_type: PublisherType,
+    rtcp_sender: Arc<transport::RtcpSender>,
+    closed_sender: broadcast::Sender<bool>,
 }
 
 impl RelayedPublisher {
     pub(crate) fn new(
         track_id: String,
         publisher_type: PublisherType,
+        rtcp_receiver_ip: String,
+        rtcp_receiver_port: u16,
     ) -> Arc<Mutex<RelayedPublisher>> {
         let (tx, rx) = mpsc::unbounded_channel::<RelayedPublisherEvent>();
+        let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
+        let (closed_sender, _) = broadcast::channel(1);
 
         let publisher = Self {
             track_id: track_id.clone(),
@@ -35,6 +46,8 @@ impl RelayedPublisher {
             publisher_event_sender: tx,
             rid_to_ssrc: HashMap::new(),
             publisher_type,
+            rtcp_sender: Arc::new(rtcp_sender),
+            closed_sender: closed_sender.clone(),
         };
 
         let publisher = Arc::new(Mutex::new(publisher));
@@ -48,11 +61,30 @@ impl RelayedPublisher {
             });
         }
 
+        {
+            let closed_sender = closed_sender.clone();
+            tokio::spawn(async move {
+                if let Err(err) = Self::rtcp_event_loop(
+                    rtcp_receiver,
+                    rtcp_receiver_ip,
+                    rtcp_receiver_port,
+                    closed_sender,
+                )
+                .await
+                {
+                    tracing::error!(
+                        "Failed to start RTCP event loop for RelayedPublisher: {}",
+                        err
+                    );
+                }
+            });
+        }
+
         publisher
     }
 
     pub(crate) fn create_relayed_track(
-        &self,
+        &mut self,
         track_id: String,
         ssrc: u32,
         rid: String,
@@ -61,6 +93,8 @@ impl RelayedPublisher {
         stream_id: String,
     ) {
         if let None = self.local_tracks.get(&ssrc) {
+            let rtcp_sender = self.rtcp_sender.clone();
+
             let local_track = RelayedTrack::new(
                 track_id.clone(),
                 ssrc,
@@ -68,6 +102,7 @@ impl RelayedPublisher {
                 mime_type,
                 codec_parameters,
                 stream_id,
+                rtcp_sender,
             );
             let _ = self
                 .publisher_event_sender
@@ -136,11 +171,61 @@ impl RelayedPublisher {
                     let mut p = publisher.lock().await;
                     p.local_tracks = HashMap::new();
                     p.rid_to_ssrc = HashMap::new();
+                    p.closed_sender.send(true).ok();
                     break;
                 }
             }
         }
         tracing::debug!("RelayedPublisher {} event loop finished", id);
+    }
+
+    pub(crate) async fn rtcp_event_loop(
+        mut rtcp_receiver: transport::RtcpReceiver,
+        rtcp_receiver_ip: String,
+        rtcp_receiver_port: u16,
+        closed_sender: broadcast::Sender<bool>,
+    ) -> Result<(), Error> {
+        let mut closed_receiver = closed_sender.subscribe();
+        drop(closed_sender);
+
+        let sender_port = find_unused_port().ok_or(Error::new_relay(
+            "Failed to find unused port for RTCP receiver".to_string(),
+            RelayErrorKind::RelayReceiverError,
+        ))?;
+        let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", sender_port)).await?;
+        let addr = format!("{}:{}", rtcp_receiver_ip, rtcp_receiver_port);
+
+        loop {
+            tokio::select! {
+                _ = closed_receiver.recv() => {
+                    tracing::debug!("RTCP receiver closed, exiting loop");
+                    break;
+                }
+                res = rtcp_receiver.recv() => {
+                    match res {
+                        Some(res) => {
+                            match res.marshal() {
+                                Ok(buf) => {
+                                    if let Err(err) = udp_socket.send_to(&buf, &addr).await {
+                                        tracing::error!("Failed to send RTCP packet: {}", err);
+                                    }
+                                }
+                                Err(err) => {
+                                    tracing::error!("Failed to marshal RTCP packet: {}", err);
+                                    continue;
+                                }
+                            }
+
+                        }
+                        None => {
+                        }
+                    }
+
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn close(&self) {

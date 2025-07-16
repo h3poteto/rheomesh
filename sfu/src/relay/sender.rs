@@ -13,20 +13,23 @@ use crate::{
         receiver::TCPResponse,
     },
     rtp::layer::Layer,
+    utils::ports::find_unused_port,
 };
 
 use super::data::RTCRtpCodecParametersSerializable;
 
 #[derive(Debug)]
-pub(crate) struct RelaySender {
-    /// UDP socket for sending RTP packets.
+pub(crate) struct RelaySender {}
+
+#[derive(Debug)]
+pub(crate) struct RelayUDPSender {
     socket: UdpSocket,
+    pub(crate) port: u16,
 }
 
 impl RelaySender {
-    pub(crate) async fn new(port: u16) -> Result<Self, Error> {
-        let socket = UdpSocket::bind(format!("0.0.0.0:{}", port)).await?;
-        Ok(Self { socket })
+    pub(crate) async fn new() -> Self {
+        Self {}
     }
 
     pub(crate) async fn create_relay_track(
@@ -41,6 +44,8 @@ impl RelaySender {
         mime_type: String,
         rid: String,
         publisher_type: PublisherType,
+        sender_udp_port: u16,
+        sender_ip: String,
     ) -> Result<u16, Error> {
         let addr = format!("{}:{}", ip, port);
         let mut stream = TcpStream::connect(addr).await?;
@@ -56,6 +61,8 @@ impl RelaySender {
             rid,
             closed: false,
             publisher_type,
+            udp_port: Some(sender_udp_port),
+            ip: Some(sender_ip),
         };
         let d = serde_json::to_string(&data).unwrap();
         stream.write(d.as_bytes()).await?;
@@ -107,6 +114,8 @@ impl RelaySender {
             rid: "".to_owned(),
             closed: true,
             publisher_type: PublisherType::Simple,
+            udp_port: None,
+            ip: None,
         };
         let d = serde_json::to_string(&data).unwrap();
         stream.write(d.as_bytes()).await?;
@@ -131,6 +140,19 @@ impl RelaySender {
                 return Err(Error::from(err));
             }
         }
+    }
+}
+
+impl RelayUDPSender {
+    pub(crate) async fn new() -> Result<Self, Error> {
+        if let Some(port) = find_unused_port() {
+            let socket = UdpSocket::bind(format!("0.0.0.0:{}", port)).await?;
+            return Ok(Self { socket, port });
+        }
+        Err(Error::new_relay(
+            "Failed to find unused port for UDP sender".to_string(),
+            error::RelayErrorKind::RelaySenderError,
+        ))
     }
 
     pub(crate) async fn rtp_sender_loop(

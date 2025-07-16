@@ -12,7 +12,7 @@ use crate::{
     config::RID,
     error::{Error, PublisherErrorKind},
     local_track::LocalTrack,
-    relay::sender::RelaySender,
+    relay::sender::{RelaySender, RelayUDPSender},
     router::RouterEvent,
     subscriber::SubscriberEvent,
     track::Track,
@@ -34,6 +34,8 @@ pub struct Publisher {
     relay_sender: Arc<RelaySender>,
     relayed_targets: Vec<(String, u16, String)>,
     relayed_publishers: HashMap<u32, (String, u16)>,
+    relay_udp_sender: Option<Arc<RelayUDPSender>>,
+    private_ip: String,
 }
 
 impl Publisher {
@@ -42,6 +44,7 @@ impl Publisher {
         router_sender: mpsc::UnboundedSender<RouterEvent>,
         publisher_type: PublisherType,
         relay_sender: Arc<RelaySender>,
+        private_ip: String,
         close_callback: Box<dyn Fn(String) + Send + Sync>,
     ) -> Arc<Mutex<Publisher>> {
         let (tx, rx) = mpsc::unbounded_channel::<PublisherEvent>();
@@ -58,6 +61,8 @@ impl Publisher {
             relay_sender,
             relayed_targets: vec![],
             relayed_publishers: HashMap::new(),
+            relay_udp_sender: None,
+            private_ip,
         };
         let publisher = Arc::new(Mutex::new(publisher));
         {
@@ -155,6 +160,13 @@ impl Publisher {
             match event {
                 PublisherEvent::TrackAdded(ssrc, rid, local_track) => {
                     let mut p = publisher.lock().await;
+
+                    if p.relay_udp_sender.is_none() {
+                        p.relay_udp_sender = Some(Arc::new(RelayUDPSender::new().await.unwrap()));
+                    }
+                    let sender_udp_port = p.relay_udp_sender.as_ref().unwrap().port.clone();
+                    let private_ip = p.private_ip.clone();
+
                     p.local_tracks.insert(ssrc, local_track.clone());
                     p.rid_to_ssrc.insert(rid, ssrc);
 
@@ -173,6 +185,8 @@ impl Publisher {
                                 local_track.mime_type(),
                                 local_track.rid(),
                                 p.publisher_type.clone(),
+                                sender_udp_port.clone(),
+                                private_ip.clone(),
                             )
                             .await
                         {
@@ -181,8 +195,9 @@ impl Publisher {
                                     .insert(ssrc, (ip.clone(), udp_port.clone()));
                                 let rtp_packet_sender = local_track.rtp_packet_sender();
                                 let event_sender = p.publisher_event_sender.clone();
+                                let relay_udp_sender = p.relay_udp_sender.clone().unwrap();
                                 tokio::spawn(async move {
-                                    let _ = relay_sender
+                                    let _ = relay_udp_sender
                                         .rtp_sender_loop(
                                             ip,
                                             udp_port,
@@ -262,6 +277,12 @@ impl Publisher {
         port: u16,
         router_id: String,
     ) -> Result<bool, Error> {
+        if self.relay_udp_sender.is_none() {
+            self.relay_udp_sender = Some(Arc::new(RelayUDPSender::new().await?));
+        }
+        let sender_udp_port = self.relay_udp_sender.as_ref().unwrap().port.clone();
+        let private_ip = self.private_ip.clone();
+
         for (ssrc, local_track) in self.local_tracks.iter() {
             let udp_port = self
                 .relay_sender
@@ -276,6 +297,8 @@ impl Publisher {
                     local_track.mime_type(),
                     local_track.rid(),
                     self.publisher_type.clone(),
+                    sender_udp_port.clone(),
+                    private_ip.clone(),
                 )
                 .await?;
             let rtp_packet_sender = local_track.rtp_packet_sender();
@@ -303,10 +326,10 @@ impl Publisher {
                 let ip = ip.clone();
                 let udp_port = udp_port.clone();
                 let track_id = self.track_id.clone();
-                let relay_sender = self.relay_sender.clone();
+                let relay_udp_sender = self.relay_udp_sender.clone().unwrap();
                 let event_sender = self.publisher_event_sender.clone();
                 tokio::spawn(async move {
-                    let _ = relay_sender
+                    let _ = relay_udp_sender
                         .rtp_sender_loop(ip, udp_port, ssrc, track_id, rtp_packet_sender)
                         .await;
                     let _ = event_sender.send(PublisherEvent::RTPSenderLoopClosed(ssrc));

@@ -25,6 +25,8 @@ pub(crate) struct TrackData {
     pub(crate) rid: String,
     pub(crate) closed: bool,
     pub(crate) publisher_type: PublisherType,
+    pub(crate) udp_port: Option<u16>,
+    pub(crate) ip: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

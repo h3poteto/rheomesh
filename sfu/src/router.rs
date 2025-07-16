@@ -28,6 +28,7 @@ pub struct Router {
     media_config: MediaConfig,
     relay_sender: Arc<RelaySender>,
     worker_event_sender: mpsc::UnboundedSender<WorkerEvent>,
+    private_ip: String,
 }
 
 impl Router {
@@ -35,6 +36,7 @@ impl Router {
         media_config: MediaConfig,
         relay_sender: Arc<RelaySender>,
         worker_event_sender: mpsc::UnboundedSender<WorkerEvent>,
+        private_ip: String,
     ) -> (Arc<Mutex<Router>>, String) {
         let id = Uuid::new_v4().to_string();
         let (tx, rx) = mpsc::unbounded_channel::<RouterEvent>();
@@ -48,6 +50,7 @@ impl Router {
             media_config,
             relay_sender,
             worker_event_sender,
+            private_ip,
         };
 
         tracing::debug!("Router {} is created", id);
@@ -92,6 +95,7 @@ impl Router {
             self.media_config.clone(),
             transport_config,
             self.relay_sender.clone(),
+            self.private_ip.clone(),
         )
         .await
     }
