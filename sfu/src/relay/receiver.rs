@@ -64,7 +64,8 @@ impl RelayServer {
                     return Ok(false)
                 }
                 res = self.tcp_listener.accept() => {
-                    let (stream, _) = res?;
+                    let (stream, _addr) = res?;
+                    // TODO: Perhaps, we can use socketAddr for sender information?
                     if let Err(err) = self.process_tcp_stream(stream).await {
                         tracing::error!("Process tcp error: {}", err);
                     }

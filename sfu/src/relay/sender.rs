@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
+use bytes::Bytes;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
     sync::broadcast,
 };
-use webrtc::{rtp, rtp_transceiver::rtp_codec::RTCRtpCodecParameters};
+use webrtc::{rtcp, rtp, rtp_transceiver::rtp_codec::RTCRtpCodecParameters};
 
 use crate::{
     error::{self, Error},
@@ -13,6 +16,7 @@ use crate::{
         receiver::TCPResponse,
     },
     rtp::layer::Layer,
+    transport,
     utils::ports::find_unused_port,
 };
 
@@ -20,12 +24,6 @@ use super::data::RTCRtpCodecParametersSerializable;
 
 #[derive(Debug)]
 pub(crate) struct RelaySender {}
-
-#[derive(Debug)]
-pub(crate) struct RelayUDPSender {
-    socket: UdpSocket,
-    pub(crate) port: u16,
-}
 
 impl RelaySender {
     pub(crate) async fn new() -> Self {
@@ -143,6 +141,12 @@ impl RelaySender {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct RelayUDPSender {
+    socket: UdpSocket,
+    pub(crate) port: u16,
+}
+
 impl RelayUDPSender {
     pub(crate) async fn new() -> Result<Self, Error> {
         if let Some(port) = find_unused_port() {
@@ -206,5 +210,40 @@ impl RelayUDPSender {
         }
 
         tracing::debug!("Relay sender publisher_ssrc={} RTP loop has finished", ssrc);
+    }
+
+    pub(crate) async fn rtcp_receiver_loop(&self, rtcp_sender: Arc<transport::RtcpSender>) {
+        loop {
+            let mut buf = [0u8; 1500];
+
+            let res = self.socket.recv_from(&mut buf).await;
+            match res {
+                Ok((len, _addr)) => {
+                    let mut bytes = Bytes::copy_from_slice(&buf[..len]);
+                    let data = rtcp::packet::unmarshal(&mut bytes);
+                    match data {
+                        Ok(rtcp) => {
+                            for d in rtcp.to_vec() {
+                                if let Err(err) = rtcp_sender.send(d) {
+                                    tracing::error!(
+                                        "Failed to send RTCP packet to publish_transport: {}",
+                                        err
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!("Failed to unmarshal RTCP packet: {}", err);
+                            continue;
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!("Failed to receive RTCP packet: {}", err);
+                    continue;
+                }
+            }
+        }
     }
 }

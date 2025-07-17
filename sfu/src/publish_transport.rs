@@ -284,9 +284,9 @@ impl PublishTransport {
                         if let Some(p) = publishers.get(&id) {
                             let mut publisher = p.lock().await;
                             publisher.set_publisher_type(PublisherType::Simulcast).await;
-                            publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
+                            publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone());
                         } else {
-                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple, relay_sender, private_ip, Box::new(move |closed_id| {
+                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple, relay_sender, private_ip, rtcp_sender, Box::new(move |closed_id| {
                                 let publishers_clone = publishers_clone.clone();
                                 tokio::spawn(async move {
                                     let mut guard = publishers_clone.lock().await;
@@ -295,7 +295,7 @@ impl PublishTransport {
                             }));
                             {
                                 let publisher = publisher.lock().await;
-                                publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
+                                publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone());
                             }
 
                             publishers.insert(id.clone(), publisher.clone());

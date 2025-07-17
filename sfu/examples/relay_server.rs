@@ -40,6 +40,10 @@ async fn main() -> std::io::Result<()> {
             .unwrap_or_else(|_| "9443".to_string())
             .parse()
             .expect("Failed to parse RELAY_SERVER_TCP_PORT"),
+        private_ip: env::var("LOCAL_IP")
+            .expect("LOCAL_IP is required")
+            .parse()
+            .expect("Failed to parse LOCAL_IP"),
     })
     .await
     .unwrap();
