@@ -30,12 +30,12 @@ pub struct RelayedPublisher {
 }
 
 impl RelayedPublisher {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         track_id: String,
         publisher_type: PublisherType,
         rtcp_receiver_ip: String,
         rtcp_receiver_port: u16,
-    ) -> Arc<Mutex<RelayedPublisher>> {
+    ) -> Result<Arc<Mutex<RelayedPublisher>>, Error> {
         let (tx, rx) = mpsc::unbounded_channel::<RelayedPublisherEvent>();
         let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
         let (closed_sender, _) = broadcast::channel(1);
@@ -62,9 +62,15 @@ impl RelayedPublisher {
         }
 
         {
+            let sender_port = find_unused_port().ok_or(Error::new_relay(
+                "Failed to find unused port for RTCP receiver".to_string(),
+                RelayErrorKind::RelayReceiverError,
+            ))?;
+            let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", sender_port)).await?;
             let closed_sender = closed_sender.clone();
             tokio::spawn(async move {
                 if let Err(err) = Self::rtcp_event_loop(
+                    udp_socket,
                     rtcp_receiver,
                     rtcp_receiver_ip,
                     rtcp_receiver_port,
@@ -80,7 +86,7 @@ impl RelayedPublisher {
             });
         }
 
-        publisher
+        Ok(publisher)
     }
 
     pub(crate) fn create_relayed_track(
@@ -180,6 +186,7 @@ impl RelayedPublisher {
     }
 
     pub(crate) async fn rtcp_event_loop(
+        udp_socket: UdpSocket,
         mut rtcp_receiver: transport::RtcpReceiver,
         rtcp_receiver_ip: String,
         rtcp_receiver_port: u16,
@@ -188,11 +195,6 @@ impl RelayedPublisher {
         let mut closed_receiver = closed_sender.subscribe();
         drop(closed_sender);
 
-        let sender_port = find_unused_port().ok_or(Error::new_relay(
-            "Failed to find unused port for RTCP receiver".to_string(),
-            RelayErrorKind::RelayReceiverError,
-        ))?;
-        let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", sender_port)).await?;
         let addr = format!("{}:{}", rtcp_receiver_ip, rtcp_receiver_port);
 
         loop {

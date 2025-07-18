@@ -26,6 +26,8 @@ impl Worker {
         let relay_sender = RelaySender::new().await;
         let (tx, rx) = mpsc::unbounded_channel::<WorkerEvent>();
 
+        tracing::debug!("Using private IP: {}", config.private_ip);
+
         let worker = Self {
             routers: HashMap::new(),
             relay_sender: Arc::new(relay_sender),
