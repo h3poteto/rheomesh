@@ -60,6 +60,7 @@ pub struct PublishTransport {
     signaling_pending: Arc<AtomicBool>,
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     relay_sender: Arc<RelaySender>,
+    private_ip: String,
 }
 
 impl PublishTransport {
@@ -68,6 +69,7 @@ impl PublishTransport {
         media_config: MediaConfig,
         transport_config: WebRTCTransportConfig,
         relay_sender: Arc<RelaySender>,
+        private_ip: String,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
         let (s, r) = mpsc::unbounded_channel();
@@ -98,6 +100,7 @@ impl PublishTransport {
             signaling_pending: Arc::new(AtomicBool::new(false)),
             publishers: Arc::new(Mutex::new(HashMap::new())),
             relay_sender,
+            private_ip,
         };
 
         transport.rtcp_writer_loop();
@@ -264,11 +267,12 @@ impl PublishTransport {
         let published_sender = self.published_channel.clone();
         let publishers = self.publishers.clone();
         let relay_sender = self.relay_sender.clone();
-        peer.on_track(Box::new(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender)
+        let private_ip = self.private_ip.clone();
+        peer.on_track(Box::new(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender, private_ip)
             move |track: Arc<TrackRemote>,
                   receiver: Arc<RTCRtpReceiver>,
                   transceiver: Arc<RTCRtpTransceiver>| {
-                Box::pin(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender) async move {
+                Box::pin(enc!( (on_track, router_sender, rtcp_sender, published_sender, publishers, relay_sender, private_ip) async move {
                     let id = track.id();
                     let ssrc = track.ssrc();
                     tracing::info!("Track published: track_id={}, ssrc={}, rid={}", id, ssrc, track.rid());
@@ -280,9 +284,9 @@ impl PublishTransport {
                         if let Some(p) = publishers.get(&id) {
                             let mut publisher = p.lock().await;
                             publisher.set_publisher_type(PublisherType::Simulcast).await;
-                            publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
+                            publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone());
                         } else {
-                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple, relay_sender, Box::new(move |closed_id| {
+                            let publisher = Publisher::new(id.clone(), router_sender.clone(), PublisherType::Simple, relay_sender, private_ip, rtcp_sender, Box::new(move |closed_id| {
                                 let publishers_clone = publishers_clone.clone();
                                 tokio::spawn(async move {
                                     let mut guard = publishers_clone.lock().await;
@@ -291,7 +295,7 @@ impl PublishTransport {
                             }));
                             {
                                 let publisher = publisher.lock().await;
-                                publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone(), rtcp_sender);
+                                publisher.create_local_track(track.clone(), receiver.clone(), transceiver.clone());
                             }
 
                             publishers.insert(id.clone(), publisher.clone());

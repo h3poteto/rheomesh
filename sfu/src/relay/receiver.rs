@@ -64,7 +64,8 @@ impl RelayServer {
                     return Ok(false)
                 }
                 res = self.tcp_listener.accept() => {
-                    let (stream, _) = res?;
+                    let (stream, _addr) = res?;
+                    // TODO: Perhaps, we can use socketAddr for sender information?
                     if let Err(err) = self.process_tcp_stream(stream).await {
                         tracing::error!("Process tcp error: {}", err);
                     }
@@ -167,38 +168,59 @@ impl RelayServer {
                                 data.stream_id,
                             );
                         } else {
-                            let publisher = self.create_publisher(&data).await;
-
-                            {
-                                let mut router = router.lock().await;
-                                router
-                                    .add_relayed_publisher(data.track_id.clone(), publisher.clone())
-                                    .await;
+                            // Router exists, but publisher does not exist.
+                            match self.create_publisher(&data).await {
+                                Ok(publisher) => {
+                                    let mut router = router.lock().await;
+                                    router
+                                        .add_relayed_publisher(
+                                            data.track_id.clone(),
+                                            publisher.clone(),
+                                        )
+                                        .await;
+                                    router_publisher
+                                        .lock()
+                                        .await
+                                        .insert(publisher_id.clone(), publisher.clone());
+                                }
+                                Err(err) => {
+                                    tracing::error!("Failed to create publisher: {}", err);
+                                    return TCPResponse {
+                                        status: "error".to_string(),
+                                        message: Some("failed to create publisher".to_string()),
+                                        udp_started: None,
+                                    };
+                                }
                             }
-                            router_publisher
-                                .lock()
-                                .await
-                                .insert(publisher_id.clone(), publisher.clone());
                         }
                     } else {
-                        if let Some(udp_port) = find_unused_port() {
-                            let publisher = self.create_publisher(&data).await;
-
-                            {
+                        // Router does not exist, of course, publisher does not exist.
+                        match self.create_publisher(&data).await {
+                            Ok(publisher) => {
                                 let mut router = router.lock().await;
                                 router
                                     .add_relayed_publisher(data.track_id.clone(), publisher.clone())
                                     .await;
+
+                                publishers.insert(
+                                    router_id.clone(),
+                                    Arc::new(Mutex::new(HashMap::from([(
+                                        publisher_id.clone(),
+                                        publisher.clone(),
+                                    )]))),
+                                );
                             }
+                            Err(err) => {
+                                tracing::error!("Failed to create publisher: {}", err);
+                                return TCPResponse {
+                                    status: "error".to_string(),
+                                    message: Some("failed to create publisher".to_string()),
+                                    udp_started: None,
+                                };
+                            }
+                        }
 
-                            publishers.insert(
-                                router_id.clone(),
-                                Arc::new(Mutex::new(HashMap::from([(
-                                    publisher_id.clone(),
-                                    publisher.clone(),
-                                )]))),
-                            );
-
+                        if let Some(udp_port) = find_unused_port() {
                             let p = publishers.get(&router_id).cloned().unwrap_or_default();
                             match RelayUDPServer::new(udp_port, p).await {
                                 Ok(udp) => {
@@ -257,10 +279,21 @@ impl RelayServer {
         }
     }
 
-    async fn create_publisher(&self, data: &TrackData) -> Arc<Mutex<RelayedPublisher>> {
-        let publisher = RelayedPublisher::new(data.track_id.clone(), data.publisher_type.clone());
+    async fn create_publisher(
+        &self,
+        data: &TrackData,
+    ) -> Result<Arc<Mutex<RelayedPublisher>>, Error> {
+        let rtcp_ip = data.ip.clone().unwrap();
+        let rtcp_port = data.udp_port.unwrap_or(0);
+        let publisher = RelayedPublisher::new(
+            data.track_id.clone(),
+            data.publisher_type.clone(),
+            rtcp_ip,
+            rtcp_port,
+        )
+        .await?;
         {
-            let publisher = publisher.lock().await;
+            let mut publisher = publisher.lock().await;
             publisher.create_relayed_track(
                 data.track_id.clone(),
                 data.ssrc,
@@ -270,7 +303,7 @@ impl RelayServer {
                 data.stream_id.clone(),
             );
         }
-        publisher
+        Ok(publisher)
     }
 }
 
@@ -295,9 +328,12 @@ impl RelayUDPServer {
         let (closed_sender, _closed_receiver) = broadcast::channel(1);
 
         {
+            let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", udp_port)).await?;
             let closed_sender = closed_sender.clone();
             tokio::spawn(async move {
-                if let Err(err) = Self::run_udp(udp_port, publishers, closed_sender.clone()).await {
+                if let Err(err) =
+                    Self::run_udp(udp_socket, udp_port, publishers, closed_sender.clone()).await
+                {
                     tracing::error!("UDP server error: {}", err);
                 }
             });
@@ -310,12 +346,12 @@ impl RelayUDPServer {
     }
 
     async fn run_udp(
+        udp_socket: UdpSocket,
         udp_port: u16,
         publishers: Arc<Mutex<HashMap<PublisherId, Arc<Mutex<RelayedPublisher>>>>>,
         closed_sender: broadcast::Sender<bool>,
     ) -> Result<bool, Error> {
         let mut closed_receiver = closed_sender.subscribe();
-        let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", udp_port)).await?;
         tracing::info!("UDP server started on :{}", udp_port);
 
         loop {

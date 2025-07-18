@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, net::IpAddr, sync::Arc, time::Duration};
 
 use derivative::Derivative;
+use local_ip_address::linux::local_ip;
 use webrtc::{
     api::setting_engine::SettingEngine, peer_connection::configuration::RTCConfiguration,
     rtp_transceiver::rtp_codec::RTCRtpCodecParameters, sdp::extmap,
@@ -235,20 +236,21 @@ impl From<u8> for RID {
 /// Configuration for [`crate::worker::Worker`]. This configuration contains the ports for the relay server and sender.
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    /// UDP port for the relay sender. This is the port that the sender will use to send RTP packets to the relay server.
-    pub relay_sender_port: u16,
     /// TCP port for the relay server. This is the port that the relay server will use to receive TCP messages from the sender.
+    /// The default value is 9442.
     pub relay_server_tcp_port: u16,
-    /// UDP port for the relay server. This is the port that the relay server will use to receive RTP packets from the sender.
-    pub relay_server_udp_port: u16,
+    /// Private IP address of your server. This IP is used to communicate with other servers when relaying tracks.
+    /// If your server is located in public subnet and it has a public IP address, you can set the public IP to this field.
+    /// The default value is calculated from the server's network interface.
+    pub private_ip: String,
 }
 
 impl Default for WorkerConfig {
     fn default() -> Self {
+        let ip = local_ip().unwrap();
         Self {
-            relay_sender_port: 9441,
             relay_server_tcp_port: 9442,
-            relay_server_udp_port: 9443,
+            private_ip: ip.to_string(),
         }
     }
 }
