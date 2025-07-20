@@ -14,6 +14,7 @@ bitvec = "1.0"
 bytes = "1.9"
 derivative = "2.2"
 enclose = "1.2"
+local-ip-address = "0.6.5"
 openport = { version = "0.1.1", features = ["rand"] }
 rand = "0.9.1"
 serde = { version = "1.0", features = ["derive"]}
