@@ -43,6 +43,4 @@ impl Channel for RelayedDataPublisher {
     fn data_sender(&self) -> broadcast::Sender<DataChannelMessage> {
         self.data_sender.clone()
     }
-
-    fn close(&self) {}
 }

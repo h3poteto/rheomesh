@@ -108,6 +108,11 @@ impl DataPublisher {
 
         Ok(true)
     }
+
+    pub async fn close(&self) {
+        tracing::debug!("DataPublisher {} is closed", self.id);
+        let _ = self.data_channel.close();
+    }
 }
 
 impl Drop for DataPublisher {
@@ -123,10 +128,5 @@ impl Channel for DataPublisher {
 
     fn data_sender(&self) -> broadcast::Sender<DataChannelMessage> {
         self.data_sender.clone()
-    }
-
-    fn close(&self) {
-        tracing::debug!("DataPublisher {} is closed", self.id);
-        let _ = self.data_channel.close();
     }
 }

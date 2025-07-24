@@ -9,7 +9,6 @@ use tokio::{
 };
 
 use crate::{
-    data_channel::Channel,
     error::Error,
     relay::{
         data::{MessageData, PacketData, RelayMessage, TrackData},
@@ -351,11 +350,6 @@ impl RelayServer {
 
             let mut data_publishers = self.data_publishers.lock().await;
 
-            if let Some(router_publisher) = data_publishers.get(&router_id) {
-                if let Some(publisher) = router_publisher.lock().await.get(&data_publisher_id) {
-                    publisher.close();
-                }
-            }
             if let Some(router_publisher) = data_publishers.get_mut(&router_id) {
                 router_publisher.lock().await.remove(&data_publisher_id);
                 if router_publisher.lock().await.is_empty() {
