@@ -9,9 +9,11 @@ use tokio::{
 };
 
 use crate::{
+    data_channel::Channel,
     error::Error,
     relay::{
-        data::{PacketData, TrackData},
+        data::{MessageData, PacketData, RelayMessage, TrackData},
+        relayed_data_publisher::RelayedDataPublisher,
         relayed_publisher::RelayedPublisher,
     },
     track::Track,
@@ -19,13 +21,16 @@ use crate::{
     worker::Worker,
 };
 
-use super::data::UDPStarted;
+use super::data::{ChannelData, UDPStarted};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 struct RouterId(String);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 struct PublisherId(String);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+struct DataPublisherId(String);
 
 #[derive(Debug)]
 pub(crate) struct RelayServer {
@@ -35,7 +40,11 @@ pub(crate) struct RelayServer {
     publishers: Arc<
         Mutex<HashMap<RouterId, Arc<Mutex<HashMap<PublisherId, Arc<Mutex<RelayedPublisher>>>>>>>,
     >,
-    udp_servers: Arc<Mutex<HashMap<RouterId, Arc<Mutex<RelayUDPServer>>>>>,
+    data_publishers: Arc<
+        Mutex<HashMap<RouterId, Arc<Mutex<HashMap<DataPublisherId, Arc<RelayedDataPublisher>>>>>>,
+    >,
+    rtp_servers: Arc<Mutex<HashMap<RouterId, Arc<Mutex<RelayRTPServer>>>>>,
+    sctp_servers: Arc<Mutex<HashMap<RouterId, Arc<Mutex<RelaySCTPServer>>>>>,
 }
 
 impl RelayServer {
@@ -51,7 +60,9 @@ impl RelayServer {
             worker,
             stop_sender,
             publishers: Arc::new(Mutex::new(HashMap::new())),
-            udp_servers: Arc::new(Mutex::new(HashMap::new())),
+            data_publishers: Arc::new(Mutex::new(HashMap::new())),
+            rtp_servers: Arc::new(Mutex::new(HashMap::new())),
+            sctp_servers: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -82,13 +93,23 @@ impl RelayServer {
                 break;
             }
 
-            match serde_json::from_slice::<TrackData>(&buffer[..n]) {
-                Ok(data) => {
-                    let res = self.handle_tcp_message(data).await;
-                    tracing::debug!("TCP response: {:#?}", res);
-                    let byte = bincode::encode_to_vec(res, bincode::config::standard()).unwrap();
-                    stream.write_all(&byte).await?;
-                }
+            match serde_json::from_slice::<RelayMessage>(&buffer[..n]) {
+                Ok(data) => match data {
+                    RelayMessage::Track(data) => {
+                        let res = self.handle_track_message(data).await;
+                        tracing::debug!("TCP response: {:#?}", res);
+                        let byte =
+                            bincode::encode_to_vec(res, bincode::config::standard()).unwrap();
+                        stream.write_all(&byte).await?;
+                    }
+                    RelayMessage::Channel(data) => {
+                        let res = self.handle_channel_message(data).await;
+                        tracing::debug!("TCP response: {:#?}", res);
+                        let byte =
+                            bincode::encode_to_vec(res, bincode::config::standard()).unwrap();
+                        stream.write_all(&byte).await?;
+                    }
+                },
                 Err(err) => {
                     tracing::error!("failed to parse tcp stream: {}", err);
                     stream.write_all(b"error").await?;
@@ -99,7 +120,7 @@ impl RelayServer {
         Ok(true)
     }
 
-    async fn handle_tcp_message(&self, data: TrackData) -> TCPResponse {
+    async fn handle_track_message(&self, data: TrackData) -> TCPResponse {
         tracing::debug!("tcp stream received: {:#?}", data);
         let router_id = RouterId(data.router_id.clone());
         let publisher_id = PublisherId(data.track_id.clone());
@@ -108,7 +129,7 @@ impl RelayServer {
             match locked.routers.get(&data.router_id) {
                 Some(router) => {
                     let mut router = router.lock().await;
-                    router.remove_relayd_publisher(&data.track_id).await;
+                    router.remove_relayed_publisher(&data.track_id).await;
                 }
                 None => {
                     return TCPResponse {
@@ -131,7 +152,7 @@ impl RelayServer {
                 router_publisher.lock().await.remove(&publisher_id);
                 if router_publisher.lock().await.is_empty() {
                     // Stop UDP receiver server if no publishers left
-                    let mut servers = self.udp_servers.lock().await;
+                    let mut servers = self.rtp_servers.lock().await;
                     if let Some(udp_server) = servers.get(&router_id) {
                         udp_server.lock().await.close();
                         servers.remove(&router_id);
@@ -222,9 +243,9 @@ impl RelayServer {
 
                         if let Some(udp_port) = find_unused_port() {
                             let p = publishers.get(&router_id).cloned().unwrap_or_default();
-                            match RelayUDPServer::new(udp_port, p).await {
+                            match RelayRTPServer::new(udp_port, p).await {
                                 Ok(udp) => {
-                                    let mut udp_servers = self.udp_servers.lock().await;
+                                    let mut udp_servers = self.rtp_servers.lock().await;
                                     udp_servers
                                         .insert(router_id.clone(), Arc::new(Mutex::new(udp)));
                                 }
@@ -248,7 +269,7 @@ impl RelayServer {
                     }
 
                     let udp_server_port: u16;
-                    if let Some(udp_server) = self.udp_servers.lock().await.get(&router_id) {
+                    if let Some(udp_server) = self.rtp_servers.lock().await.get(&router_id) {
                         udp_server_port = udp_server.lock().await.udp_port;
                     } else {
                         tracing::error!("No UDP server found for router {}", data.router_id);
@@ -305,6 +326,166 @@ impl RelayServer {
         }
         Ok(publisher)
     }
+
+    async fn handle_channel_message(&self, data: ChannelData) -> TCPResponse {
+        tracing::debug!("tcp stream received channel data: {:#?}", data);
+        let router_id = RouterId(data.router_id.clone());
+        let data_publisher_id = DataPublisherId(data.data_publisher_id.clone());
+        if data.closed {
+            let locked = self.worker.lock().await;
+            match locked.routers.get(&data.router_id) {
+                Some(router) => {
+                    let mut router = router.lock().await;
+                    router
+                        .remove_relayed_data_publisher(&data.data_publisher_id)
+                        .await;
+                }
+                None => {
+                    return TCPResponse {
+                        status: "error".to_string(),
+                        message: Some("router not found".to_string()),
+                        udp_started: None,
+                    }
+                }
+            }
+
+            let mut data_publishers = self.data_publishers.lock().await;
+
+            if let Some(router_publisher) = data_publishers.get(&router_id) {
+                if let Some(publisher) = router_publisher.lock().await.get(&data_publisher_id) {
+                    publisher.close();
+                }
+            }
+            if let Some(router_publisher) = data_publishers.get_mut(&router_id) {
+                router_publisher.lock().await.remove(&data_publisher_id);
+                if router_publisher.lock().await.is_empty() {
+                    // Stop UDP receiver server
+                    let mut servers = self.sctp_servers.lock().await;
+                    if let Some(udp_server) = servers.get(&router_id) {
+                        udp_server.lock().await.close();
+                        servers.remove(&router_id);
+                    }
+                    data_publishers.remove(&router_id);
+                }
+            }
+
+            return TCPResponse {
+                status: "ok".to_string(),
+                message: Some("data publisher removed".to_string()),
+                udp_started: None,
+            };
+        } else {
+            let locked = self.worker.lock().await;
+            match locked.routers.get(&data.router_id) {
+                Some(router) => {
+                    tracing::debug!("router_id={} is found", data.router_id);
+
+                    let mut data_publishers = self.data_publishers.lock().await;
+                    if let Some(router_publisher) = data_publishers.get_mut(&router_id) {
+                        if let Some(_) = router_publisher.lock().await.get(&data_publisher_id) {
+                            // Don't need handle this pattern.
+                        } else {
+                            // Router exists, but data publisher does not exist.
+                            let data_publisher = self
+                                .create_data_publisher(data.data_publisher_id.clone())
+                                .await;
+                            let mut router = router.lock().await;
+                            router
+                                .add_relayed_data_publisher(
+                                    data.data_publisher_id.clone(),
+                                    data_publisher.clone(),
+                                )
+                                .await;
+                            router_publisher
+                                .lock()
+                                .await
+                                .insert(data_publisher_id.clone(), data_publisher.clone());
+                        }
+                    } else {
+                        // Router does not exist, of course, data publisher does not exist.
+                        let data_publisher = self
+                            .create_data_publisher(data.data_publisher_id.clone())
+                            .await;
+                        let mut router = router.lock().await;
+                        router
+                            .add_relayed_data_publisher(
+                                data.data_publisher_id.clone(),
+                                data_publisher.clone(),
+                            )
+                            .await;
+
+                        data_publishers.insert(
+                            router_id.clone(),
+                            Arc::new(Mutex::new(HashMap::from([(
+                                data_publisher_id.clone(),
+                                data_publisher.clone(),
+                            )]))),
+                        );
+
+                        if let Some(udp_port) = find_unused_port() {
+                            let p = data_publishers.get(&router_id).cloned().unwrap_or_default();
+                            match RelaySCTPServer::new(udp_port, p).await {
+                                Ok(udp) => {
+                                    let mut udp_servers = self.sctp_servers.lock().await;
+                                    udp_servers
+                                        .insert(router_id.clone(), Arc::new(Mutex::new(udp)));
+                                }
+                                Err(err) => {
+                                    tracing::error!("Failed to create UDP server: {}", err);
+                                    return TCPResponse {
+                                        status: "error".to_string(),
+                                        message: Some("failed to create UDP server".to_string()),
+                                        udp_started: None,
+                                    };
+                                }
+                            }
+                        } else {
+                            tracing::error!("No free UDP port found for router {}", data.router_id);
+                            return TCPResponse {
+                                status: "error".to_string(),
+                                message: Some("no free UDP port found".to_string()),
+                                udp_started: None,
+                            };
+                        }
+                    }
+
+                    let udp_server_port: u16;
+                    if let Some(udp_server) = self.sctp_servers.lock().await.get(&router_id) {
+                        udp_server_port = udp_server.lock().await.udp_port;
+                    } else {
+                        tracing::error!("No UDP server found for router {}", data.router_id);
+                        return TCPResponse {
+                            status: "error".to_string(),
+                            message: Some("no UDP server found".to_string()),
+                            udp_started: None,
+                        };
+                    }
+
+                    return TCPResponse {
+                        status: "ok".to_string(),
+                        message: None,
+                        udp_started: Some(UDPStarted {
+                            port: udp_server_port,
+                        }),
+                    };
+                }
+                None => {
+                    tracing::warn!("router id={} is not found", data.router_id);
+                    return TCPResponse {
+                        status: "error".to_string(),
+                        message: Some("router not found".to_string()),
+                        udp_started: None,
+                    };
+                }
+            }
+        }
+    }
+
+    async fn create_data_publisher(&self, data_publisher_id: String) -> Arc<RelayedDataPublisher> {
+        let data_publisher = Arc::new(RelayedDataPublisher::new(data_publisher_id.clone()));
+
+        data_publisher
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -315,12 +496,12 @@ pub(crate) struct TCPResponse {
 }
 
 #[derive(Debug)]
-pub(crate) struct RelayUDPServer {
+pub(crate) struct RelayRTPServer {
     pub(crate) udp_port: u16,
     closed: broadcast::Sender<bool>,
 }
 
-impl RelayUDPServer {
+impl RelayRTPServer {
     async fn new(
         udp_port: u16,
         publishers: Arc<Mutex<HashMap<PublisherId, Arc<Mutex<RelayedPublisher>>>>>,
@@ -389,6 +570,89 @@ impl RelayUDPServer {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    pub(crate) fn close(&self) {
+        self.closed.send(true).unwrap();
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RelaySCTPServer {
+    pub(crate) udp_port: u16,
+    closed: broadcast::Sender<bool>,
+}
+
+impl RelaySCTPServer {
+    async fn new(
+        udp_port: u16,
+        publishers: Arc<Mutex<HashMap<DataPublisherId, Arc<RelayedDataPublisher>>>>,
+    ) -> Result<Self, Error> {
+        let (closed_sender, _closed_receiver) = broadcast::channel(1);
+
+        {
+            let udp_socket = UdpSocket::bind(format!("0.0.0.0:{}", udp_port)).await?;
+            let closed_sender = closed_sender.clone();
+            tokio::spawn(async move {
+                if let Err(err) =
+                    Self::run_udp(udp_socket, udp_port, publishers, closed_sender.clone()).await
+                {
+                    tracing::error!("UDP server error: {}", err);
+                }
+            });
+        }
+
+        Ok(Self {
+            udp_port,
+            closed: closed_sender,
+        })
+    }
+
+    async fn run_udp(
+        udp_socket: UdpSocket,
+        udp_port: u16,
+        publishers: Arc<Mutex<HashMap<DataPublisherId, Arc<RelayedDataPublisher>>>>,
+        closed_sender: broadcast::Sender<bool>,
+    ) -> Result<bool, Error> {
+        let mut closed_receiver = closed_sender.subscribe();
+        tracing::info!("UDP server started on :{}", udp_port);
+
+        loop {
+            let mut buf = [0u8; 1500];
+
+            tokio::select! {
+                _ = closed_receiver.recv() => {
+                    tracing::info!("UDP server on :{} is closed", udp_port);
+                    break;
+                }
+                res = udp_socket.recv_from(&mut buf) => {
+                    let (len, _addr) = res?;
+                    let bytes = Bytes::copy_from_slice(&buf[..len]);
+                    let message_data = MessageData::unmarshal(&bytes, len)?;
+                    let mes = message_data.message;
+                    let id = message_data.data_publisher_id;
+
+                    let publishers = publishers.lock().await;
+                    if let Some(publisher) = publishers.get(&DataPublisherId(id.clone())) {
+                        if let Err(err) = publisher.data_sender.send(mes) {
+                            tracing::error!(
+                                "RelayedDataPublisher id={} failed to send data: {}",
+                                id,
+                                err
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            "RelayedDataPublisher id={} not found, skipping data send",
+                            id
+                        );
+                    }
+
                 }
             }
         }

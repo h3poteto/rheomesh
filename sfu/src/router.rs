@@ -9,7 +9,8 @@ use crate::{
     publisher::Publisher,
     recording::recording_transport::RecordingTransport,
     relay::{
-        relayed_publisher::RelayedPublisher, relayed_track::RelayedTrack, sender::RelaySender,
+        relayed_data_publisher::RelayedDataPublisher, relayed_publisher::RelayedPublisher,
+        relayed_track::RelayedTrack, sender::RelaySender,
     },
     subscribe_transport::SubscribeTransport,
     worker::WorkerEvent,
@@ -24,6 +25,7 @@ pub struct Router {
     publishers: Vec<(String, Arc<Mutex<Publisher>>)>,
     relayed_publishers: Vec<(String, Arc<Mutex<RelayedPublisher>>)>,
     data_publishers: HashMap<String, Arc<DataPublisher>>,
+    relayed_data_publishers: Vec<(String, Arc<RelayedDataPublisher>)>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
     relay_sender: Arc<RelaySender>,
@@ -46,6 +48,7 @@ impl Router {
             publishers: Vec::new(),
             relayed_publishers: Vec::new(),
             data_publishers: HashMap::new(),
+            relayed_data_publishers: Vec::new(),
             router_event_sender: tx,
             media_config,
             relay_sender,
@@ -145,11 +148,6 @@ impl Router {
                     let data = track.cloned();
                     let _ = reply_sender.send(data);
                 }
-                RouterEvent::DataPublished(data_publisher) => {
-                    let mut r = router.lock().await;
-                    let data_id = data_publisher.id.clone();
-                    r.data_publishers.insert(data_id, data_publisher);
-                }
                 RouterEvent::GetRelayedPublisher(track_id, reply_sender) => {
                     let r = router.lock().await;
                     let publisher = r
@@ -160,6 +158,11 @@ impl Router {
                     let data = publisher.cloned();
                     let _ = reply_sender.send(data);
                 }
+                RouterEvent::DataPublished(data_publisher) => {
+                    let mut r = router.lock().await;
+                    let data_id = data_publisher.id.clone();
+                    r.data_publishers.insert(data_id, data_publisher);
+                }
                 RouterEvent::DataRemoved(data_publisher_id) => {
                     let mut r = router.lock().await;
                     r.data_publishers.remove(&data_publisher_id);
@@ -168,6 +171,16 @@ impl Router {
                     let r = router.lock().await;
                     let channel = r.data_publishers.get(&data_publisher_id);
                     let data = channel.cloned();
+                    let _ = reply_sender.send(data);
+                }
+                RouterEvent::GetRelayedDataPublisher(data_publisher_id, reply_sender) => {
+                    let r = router.lock().await;
+                    let data_publisher = r
+                        .relayed_data_publishers
+                        .iter()
+                        .find(|(id, _)| *id == data_publisher_id)
+                        .map(|(_, publisher)| publisher);
+                    let data = data_publisher.cloned();
                     let _ = reply_sender.send(data);
                 }
                 RouterEvent::Closed => {
@@ -217,12 +230,41 @@ impl Router {
         Ok(local_track)
     }
 
+    pub(crate) async fn find_local_data_publisher(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        data_publisher_id: String,
+    ) -> Result<Arc<DataPublisher>, Error> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = event_sender.send(RouterEvent::GetDataPublisher(data_publisher_id.clone(), tx));
+
+        let reply = rx.await.unwrap();
+        match reply {
+            None => {
+                return Err(Error::new_subscriber(
+                    format!("DataPublisher for {} is not found", data_publisher_id),
+                    SubscriberErrorKind::TrackNotFoundError,
+                ))
+            }
+            Some(data_publisher) => Ok(data_publisher),
+        }
+    }
+
     pub(crate) async fn add_relayed_publisher(
         &mut self,
         track_id: String,
         relayed_publisher: Arc<Mutex<RelayedPublisher>>,
     ) {
         self.relayed_publishers.push((track_id, relayed_publisher));
+    }
+
+    pub(crate) async fn add_relayed_data_publisher(
+        &mut self,
+        data_publisher_id: String,
+        relayed_data_publisher: Arc<RelayedDataPublisher>,
+    ) {
+        self.relayed_data_publishers
+            .push((data_publisher_id, relayed_data_publisher));
     }
 
     pub(crate) async fn find_relayed_publisher(
@@ -245,6 +287,32 @@ impl Router {
         }
     }
 
+    pub(crate) async fn find_relayed_data_publisher(
+        event_sender: mpsc::UnboundedSender<RouterEvent>,
+        data_publisher_id: String,
+    ) -> Result<Arc<RelayedDataPublisher>, Error> {
+        let (tx, rx) = oneshot::channel();
+
+        let _ = event_sender.send(RouterEvent::GetRelayedDataPublisher(
+            data_publisher_id.clone(),
+            tx,
+        ));
+
+        let reply = rx.await.unwrap();
+        match reply {
+            None => {
+                return Err(Error::new_subscriber(
+                    format!(
+                        "RelayedDataPublisher for {} is not found",
+                        data_publisher_id
+                    ),
+                    SubscriberErrorKind::TrackNotFoundError,
+                ))
+            }
+            Some(data_publisher) => Ok(data_publisher),
+        }
+    }
+
     pub(crate) async fn find_relayed_track(
         event_sender: mpsc::UnboundedSender<RouterEvent>,
         publisher_id: String,
@@ -257,8 +325,13 @@ impl Router {
         Ok(relayed_track)
     }
 
-    pub(crate) async fn remove_relayd_publisher(&mut self, track_id: &str) {
+    pub(crate) async fn remove_relayed_publisher(&mut self, track_id: &str) {
         self.relayed_publishers.retain(|(id, _)| id != track_id);
+    }
+
+    pub(crate) async fn remove_relayed_data_publisher(&mut self, data_publisher_id: &str) {
+        self.relayed_data_publishers
+            .retain(|(id, _)| id != data_publisher_id);
     }
 
     pub fn close(&self) {
@@ -278,6 +351,7 @@ pub(crate) enum RouterEvent {
         String,
         oneshot::Sender<Option<Arc<Mutex<RelayedPublisher>>>>,
     ),
+    GetRelayedDataPublisher(String, oneshot::Sender<Option<Arc<RelayedDataPublisher>>>),
     Closed,
 }
 
