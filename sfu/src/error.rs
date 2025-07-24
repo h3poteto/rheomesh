@@ -17,6 +17,8 @@ pub enum Error {
     #[error(transparent)]
     BincodeEncodeError(#[from] bincode::error::EncodeError),
     #[error(transparent)]
+    SerdeJsonError(#[from] serde_json::Error),
+    #[error(transparent)]
     TransportError(#[from] TransportError),
     #[error(transparent)]
     SubscriberError(#[from] SubscriberError),

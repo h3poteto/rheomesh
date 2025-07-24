@@ -318,15 +318,16 @@ impl PublishTransport {
 
         let router_sender = self.router_event_sender.clone();
         let data_published_sender = self.data_published_sender.clone();
+        let relay_sender = self.relay_sender.clone();
         peer.on_data_channel(Box::new(
-            enc!((router_sender, data_published_sender) move |dc: Arc<RTCDataChannel>| {
-                Box::pin(enc!((router_sender, data_published_sender) async move {
+            enc!((router_sender, data_published_sender, relay_sender) move |dc: Arc<RTCDataChannel>| {
+                Box::pin(enc!((router_sender, data_published_sender, relay_sender) async move {
                     let channel = dc.clone();
-                    dc.on_open(Box::new(enc!((channel, router_sender, data_published_sender) move || {
+                    dc.on_open(Box::new(enc!((channel, router_sender, data_published_sender, relay_sender) move || {
                         let id = channel.id().to_string();
                         tracing::info!("DataChannel is opened: id={}, label={}, readyState={}", id, channel.label(), channel.ready_state());
                         Box::pin(async move {
-                            let data_publisher = Arc::new(DataPublisher::new(channel, router_sender.clone()));
+                            let data_publisher = Arc::new(DataPublisher::new(channel, router_sender.clone(), relay_sender));
                             data_published_sender.send(data_publisher.clone()).expect("could not send data published to publisher");
                             let _ = router_sender.send(RouterEvent::DataPublished(data_publisher));
                         })

@@ -6,13 +6,16 @@ use tokio::{
     net::{TcpStream, UdpSocket},
     sync::broadcast,
 };
-use webrtc::{rtcp, rtp, rtp_transceiver::rtp_codec::RTCRtpCodecParameters};
+use webrtc::{
+    data_channel::data_channel_message::DataChannelMessage, rtcp, rtp,
+    rtp_transceiver::rtp_codec::RTCRtpCodecParameters,
+};
 
 use crate::{
     error::{self, Error},
     publisher::PublisherType,
     relay::{
-        data::{PacketData, TrackData},
+        data::{ChannelData, PacketData, RelayMessage, TrackData},
         receiver::TCPResponse,
     },
     rtp::layer::Layer,
@@ -20,7 +23,7 @@ use crate::{
     utils::ports::find_unused_port,
 };
 
-use super::data::RTCRtpCodecParametersSerializable;
+use super::data::{MessageData, RTCRtpCodecParametersSerializable};
 
 #[derive(Debug)]
 pub(crate) struct RelaySender {}
@@ -49,7 +52,7 @@ impl RelaySender {
         let mut stream = TcpStream::connect(addr).await?;
 
         tracing::debug!("creating relay track with {:#?}", publisher_type);
-        let data = TrackData {
+        let data = RelayMessage::Track(TrackData {
             router_id,
             track_id,
             ssrc,
@@ -61,8 +64,8 @@ impl RelaySender {
             publisher_type,
             udp_port: Some(sender_udp_port),
             ip: Some(sender_ip),
-        };
-        let d = serde_json::to_string(&data).unwrap();
+        });
+        let d = serde_json::to_string(&data)?;
         stream.write(d.as_bytes()).await?;
 
         let mut buf = Vec::with_capacity(4096);
@@ -102,7 +105,7 @@ impl RelaySender {
         let addr = format!("{}:{}", ip, port);
         let mut stream = TcpStream::connect(addr).await?;
 
-        let data = TrackData {
+        let data = RelayMessage::Track(TrackData {
             router_id,
             track_id,
             ssrc: 0,
@@ -114,7 +117,7 @@ impl RelaySender {
             publisher_type: PublisherType::Simple,
             udp_port: None,
             ip: None,
-        };
+        });
         let d = serde_json::to_string(&data).unwrap();
         stream.write(d.as_bytes()).await?;
 
@@ -138,6 +141,35 @@ impl RelaySender {
                 return Err(Error::from(err));
             }
         }
+    }
+
+    pub(crate) async fn create_relay_data(
+        &self,
+        ip: String,
+        port: u16,
+        router_id: String,
+        data_publisher_id: String,
+        channel_id: u16,
+        label: String,
+    ) -> Result<u16, Error> {
+        let addr = format!("{}:{}", ip, port);
+        let mut stream = TcpStream::connect(addr).await?;
+
+        tracing::debug!("creating relay data channel");
+        let data = RelayMessage::Channel(ChannelData {
+            router_id,
+            data_publisher_id,
+            channel_id,
+            label,
+            closed: false,
+        });
+        let d = serde_json::to_string(&data)?;
+        stream.write(d.as_bytes()).await?;
+
+        let mut buf = Vec::with_capacity(4096);
+        stream.read_buf(&mut buf).await?;
+
+        Ok(1)
     }
 }
 
@@ -241,6 +273,49 @@ impl RelayUDPSender {
                 }
                 Err(err) => {
                     tracing::error!("Failed to receive RTCP packet: {}", err);
+                    continue;
+                }
+            }
+        }
+    }
+
+    pub(crate) async fn data_sender_loop(
+        &self,
+        ip: String,
+        port: u16,
+        data_publisher_id: String,
+        data_sender: broadcast::Sender<DataChannelMessage>,
+    ) {
+        let mut data_receiver = data_sender.subscribe();
+        drop(data_sender);
+
+        let addr = format!("{}:{}", ip, port);
+
+        loop {
+            let res = data_receiver.recv().await;
+            match res {
+                Ok(msg) => {
+                    let data = MessageData {
+                        data_publisher_id: data_publisher_id.clone(),
+                        message: msg,
+                    };
+                    tracing::trace!("sending data message: {}", data_publisher_id);
+                    match data.marshal() {
+                        Ok(send_buf) => {
+                            if let Err(err) = self.socket.send_to(&send_buf, addr.clone()).await {
+                                tracing::error!("Failed to send data message with UDP: {}", err);
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!("Failed to marshal data: {}", err);
+                        }
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    break;
+                }
+                Err(err) => {
+                    tracing::error!("Failed to receive data message: {}", err);
                     continue;
                 }
             }

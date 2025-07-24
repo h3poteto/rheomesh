@@ -7,7 +7,7 @@ use std::time::Duration;
 use derivative::Derivative;
 use enclose::enc;
 use tokio::{
-    sync::{mpsc, oneshot, watch, Mutex},
+    sync::{mpsc, watch, Mutex},
     time::sleep,
 };
 use uuid::Uuid;
@@ -34,9 +34,9 @@ use webrtc_sdp::parse_sdp;
 
 use crate::{
     config::{find_extmap_order, MediaConfig, WebRTCTransportConfig, RID},
-    data_publisher::DataPublisher,
+    data_channel::Channel,
     data_subscriber::DataSubscriber,
-    error::{Error, SubscriberErrorKind, TransportErrorKind},
+    error::{Error, TransportErrorKind},
     prober::Prober,
     router::{Router, RouterEvent},
     subscriber::Subscriber,
@@ -121,7 +121,7 @@ impl SubscribeTransport {
         Ok((subscriber, offer))
     }
 
-    pub(crate) async fn find_local_track(
+    async fn find_local_track(
         &self,
         publisher_id: String,
         rid: RID,
@@ -154,23 +154,38 @@ impl SubscribeTransport {
         &self,
         data_publisher_id: String,
     ) -> Result<(DataSubscriber, RTCSessionDescription), Error> {
-        let (tx, rx) = oneshot::channel();
-
-        let _ = self
-            .router_event_sender
-            .send(RouterEvent::GetDataPublisher(data_publisher_id.clone(), tx));
-
-        let reply = rx.await.unwrap();
-        match reply {
-            None => Err(Error::new_subscriber(
-                format!("DataPublisher for {} is not found", data_publisher_id),
-                SubscriberErrorKind::DataChannelNotFoundError,
-            )),
-            Some(data_publisher) => {
+        match self.find_data_publisher(data_publisher_id.clone()).await {
+            Ok(data_publisher) => {
                 let data_subscriber = self.subscribe_data(data_publisher).await?;
 
                 let offer = self.create_offer().await?;
                 Ok((data_subscriber, offer))
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn find_data_publisher(
+        &self,
+        data_publisher_id: String,
+    ) -> Result<Arc<dyn Channel>, Error> {
+        match Router::find_local_data_publisher(
+            self.router_event_sender.clone(),
+            data_publisher_id.clone(),
+        )
+        .await
+        {
+            Ok(data_publisher) => Ok(data_publisher),
+            Err(_) => {
+                match Router::find_relayed_data_publisher(
+                    self.router_event_sender.clone(),
+                    data_publisher_id,
+                )
+                .await
+                {
+                    Ok(relayed_data_publisher) => Ok(relayed_data_publisher),
+                    Err(err) => Err(err),
+                }
             }
         }
     }
@@ -273,18 +288,18 @@ impl SubscribeTransport {
 
     async fn subscribe_data(
         &self,
-        data_publisher: Arc<DataPublisher>,
+        data_publisher: Arc<dyn Channel>,
     ) -> Result<DataSubscriber, Error> {
-        let data_sender = data_publisher.data_sender.clone();
+        let data_sender = data_publisher.data_sender().clone();
 
         let data_channel = self
             .peer_connection
-            .create_data_channel(data_publisher.id.as_str(), None)
+            .create_data_channel(data_publisher.id().as_str(), None)
             .await?;
 
         let closed_receiver = self.closed_receiver.clone();
         let data_subscriber = DataSubscriber::new(
-            data_publisher.id.clone(),
+            data_publisher.id().clone(),
             data_channel,
             data_sender,
             closed_receiver,
