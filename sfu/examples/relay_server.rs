@@ -3,7 +3,7 @@ use std::env;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
-use actix::{Actor, Addr, Message, StreamHandler};
+use actix::{Actor, Message, StreamHandler};
 use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
@@ -24,6 +24,9 @@ use tracing_subscriber::util::SubscriberInitExt;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+
+mod common;
+use common::room::{Room, RoomOwner};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -47,7 +50,7 @@ async fn main() -> std::io::Result<()> {
     })
     .await
     .unwrap();
-    let room_owner = RoomOwner::new(worker);
+    let room_owner = RoomOwner::<WebSocket>::new(worker);
     let room_data = Data::new(Mutex::new(room_owner));
 
     let port = env::var("PORT").unwrap_or_else(|_| "4000".to_string());
@@ -71,7 +74,7 @@ async fn index() -> impl Responder {
 
 async fn socket(
     req: HttpRequest,
-    room_owner: Data<Mutex<RoomOwner>>,
+    room_owner: Data<Mutex<RoomOwner<WebSocket>>>,
     stream: web::Payload,
 ) -> impl Responder {
     let query = req.query_string();
@@ -163,8 +166,8 @@ fn get_pair_servers(
 }
 
 struct WebSocket {
-    owner: Data<Mutex<RoomOwner>>,
-    room: Arc<Room>,
+    owner: Data<Mutex<RoomOwner<Self>>>,
+    room: Arc<Room<Self>>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
     publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
@@ -175,7 +178,7 @@ struct WebSocket {
 
 impl WebSocket {
     // This function is called when a new user connect to this server.
-    pub async fn new(room: Arc<Room>, owner: Data<Mutex<RoomOwner>>) -> Self {
+    pub async fn new(room: Arc<Room<Self>>, owner: Data<Mutex<RoomOwner<Self>>>) -> Self {
         tracing::info!("Starting WebSocket");
         let r = room.router.clone();
         let router = r.lock().await;
@@ -700,76 +703,3 @@ enum SendingMessage {
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 enum InternalMessage {}
-
-struct RoomOwner {
-    rooms: HashMap<String, Arc<Room>>,
-    worker: Arc<Mutex<rheomesh::worker::Worker>>,
-}
-
-impl RoomOwner {
-    pub fn new(worker: Arc<Mutex<rheomesh::worker::Worker>>) -> Self {
-        RoomOwner {
-            rooms: HashMap::<String, Arc<Room>>::new(),
-            worker,
-        }
-    }
-
-    fn find_by_id(&self, id: String) -> Option<Arc<Room>> {
-        self.rooms.get(&id).cloned()
-    }
-
-    async fn create_new_room(
-        &mut self,
-        id: String,
-        config: rheomesh::config::MediaConfig,
-    ) -> (Arc<Room>, String) {
-        let mut worker = self.worker.lock().await;
-        let router = worker.new_router(config);
-        #[allow(unused)]
-        let mut router_id = "".to_string();
-        {
-            let locked = router.lock().await;
-            router_id = locked.id.clone();
-        }
-        let room = Room::new(id.clone(), router);
-        let a = Arc::new(room);
-        self.rooms.insert(id.clone(), a.clone());
-        (a, router_id)
-    }
-
-    fn remove_room(&mut self, room_id: String) {
-        self.rooms.remove(&room_id);
-    }
-}
-
-struct Room {
-    pub id: String,
-    pub router: Arc<Mutex<rheomesh::router::Router>>,
-    users: std::sync::Mutex<Vec<Addr<WebSocket>>>,
-}
-
-impl Room {
-    pub fn new(id: String, router: Arc<Mutex<rheomesh::router::Router>>) -> Self {
-        Self {
-            id,
-            router,
-            users: std::sync::Mutex::new(Vec::new()),
-        }
-    }
-
-    pub fn add_user(&self, user: Addr<WebSocket>) {
-        let mut users = self.users.lock().unwrap();
-        users.push(user);
-    }
-
-    pub fn remove_user(&self, user: Addr<WebSocket>) -> usize {
-        let mut users = self.users.lock().unwrap();
-        users.retain(|u| u != &user);
-        users.len()
-    }
-
-    pub fn get_peers(&self, user: &Addr<WebSocket>) -> Vec<Addr<WebSocket>> {
-        let users = self.users.lock().unwrap();
-        users.iter().filter(|u| u != &user).cloned().collect()
-    }
-}
