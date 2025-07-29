@@ -9,6 +9,7 @@
 
 /// Configuration for [`router::Router`], [`publish_transport::PublishTransport`] and [`subscribe_transport::SubscribeTransport`].
 pub mod config;
+pub mod data_channel;
 /// DataChannel methods for publisher.
 pub mod data_publisher;
 /// DataChannel methods for subscriber.

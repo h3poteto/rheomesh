@@ -3,6 +3,7 @@ use bytes::{Bytes, BytesMut};
 
 use serde::{Deserialize, Serialize};
 use webrtc::{
+    data_channel::data_channel_message::DataChannelMessage,
     rtp,
     rtp_transceiver::{
         rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters},
@@ -182,4 +183,61 @@ impl PacketData {
             track_id,
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MessageData {
+    pub message: DataChannelMessage,
+    pub data_publisher_id: String,
+}
+
+impl MessageData {
+    pub fn marshal(&self) -> Result<Bytes, Error> {
+        let data_publisher_id_bytes = self.data_publisher_id.as_bytes();
+        let data_publisher_id_len = data_publisher_id_bytes.len() as u8;
+        let mut id_len_buf = BytesMut::with_capacity(1);
+        id_len_buf.extend_from_slice(&[data_publisher_id_len]);
+        let mut id_buf = BytesMut::with_capacity(data_publisher_id_len.into());
+        id_buf.extend_from_slice(data_publisher_id_bytes);
+
+        let mut message_buf = BytesMut::with_capacity(self.message.data.len() + 1);
+        message_buf.extend_from_slice(&[self.message.is_string as u8]);
+        message_buf.extend_from_slice(&self.message.data);
+
+        let buf = Bytes::from_iter(id_buf.into_iter().chain(message_buf.into_iter()));
+        Ok(buf)
+    }
+
+    pub fn unmarshal(bytes: &Bytes, len: usize) -> Result<MessageData, Error> {
+        let data_publisher_id_len = bytes[0] as usize;
+        let id_bytes = bytes.slice(1..data_publisher_id_len);
+        let data_publisher_id = String::from_utf8(id_bytes.to_vec()).unwrap();
+
+        let is_string = bytes[1 + data_publisher_id_len] != 0;
+
+        let data = bytes.slice(1 + data_publisher_id_len + 1..len);
+
+        Ok(MessageData {
+            message: DataChannelMessage { is_string, data },
+            data_publisher_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ChannelData {
+    pub(crate) router_id: String,
+    pub(crate) data_publisher_id: String,
+    pub(crate) channel_id: u16,
+    pub(crate) label: String,
+    pub(crate) closed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub(crate) enum RelayMessage {
+    #[serde(rename = "trackdata")]
+    Track(TrackData),
+    #[serde(rename = "channeldata")]
+    Channel(ChannelData),
 }
