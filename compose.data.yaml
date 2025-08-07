@@ -1,0 +1,79 @@
+services:
+  frontend1:
+    image: node:22-slim
+    ports:
+      - "3001:5173"
+    volumes:
+      - ./client:/etc/client
+      - node_modules1:/etc/client/node_modules
+    working_dir: /etc/client
+    environment:
+      VITE_SERVER_PORT: 4001
+    command: bash -c "yarn install && yarn workspace rheomesh build && yarn workspace data dev --host 0.0.0.0"
+  frontend2:
+    image: node:22-slim
+    ports:
+      - "3002:5173"
+    volumes:
+      - ./client:/etc/client
+      - node_modules2:/etc/client/node_modules
+    working_dir: /etc/client
+    environment:
+      VITE_SERVER_PORT: 4002
+    command: bash -c "yarn install && yarn workspace rheomesh build && yarn workspace data dev --host 0.0.0.0"
+
+  sfu1:
+    image: rust:1.86.0-slim
+    ports:
+      - "4001:4000"
+      - "12000-12020:12000-12020/udp"
+      - "12000-12020:12000-12020"
+    volumes:
+      - ./sfu:/etc/sfu
+      - target:/etc/sfu/target
+    working_dir: /etc/sfu
+    environment:
+      LOCAL_IP: sfu1
+      # Please override your local machine IP address.
+      PUBLIC_IP: 192.168.10.1
+      RTC_MIN_PORT: 12000
+      RTC_MAX_PORT: 12020
+      REDIS_HOST: redis
+    command: cargo run --example data_relay_server
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
+  sfu2:
+    image: rust:1.86.0-slim
+    ports:
+      - "4002:4000"
+      - "13000-13020:13000-13020/udp"
+      - "13000-13020:13000-13020"
+    volumes:
+      - ./sfu:/etc/sfu
+      - target:/etc/sfu/target
+    working_dir: /etc/sfu
+    environment:
+      LOCAL_IP: sfu2
+      # Please override your local machine IP address.
+      PUBLIC_IP: 192.168.10.1
+      RTC_MIN_PORT: 13000
+      RTC_MAX_PORT: 13020
+      REDIS_HOST: redis
+    command: cargo run --example data_relay_server
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+      - net.ipv6.conf.default.disable_ipv6=1
+  # Redis is used to communicate sfu1 and sfu2.
+  redis:
+    image: redis:latest
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+
+volumes:
+  front1:
+  front2:
+  node_modules1:
+  node_modules2:
+  target:

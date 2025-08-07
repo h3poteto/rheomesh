@@ -6,8 +6,8 @@ use webrtc::{
     data_channel::data_channel_message::DataChannelMessage,
     rtp,
     rtp_transceiver::{
-        rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters},
         PayloadType, RTCPFeedback,
+        rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters},
     },
     util::marshal::Marshal,
 };
@@ -204,17 +204,20 @@ impl MessageData {
         message_buf.extend_from_slice(&[self.message.is_string as u8]);
         message_buf.extend_from_slice(&self.message.data);
 
-        let buf = Bytes::from_iter(id_buf.into_iter().chain(message_buf.into_iter()));
+        let buf = Bytes::from_iter(
+            id_len_buf
+                .into_iter()
+                .chain(id_buf.into_iter().chain(message_buf.into_iter())),
+        );
         Ok(buf)
     }
 
     pub fn unmarshal(bytes: &Bytes, len: usize) -> Result<MessageData, Error> {
         let data_publisher_id_len = bytes[0] as usize;
-        let id_bytes = bytes.slice(1..data_publisher_id_len);
+        let id_bytes = bytes.slice(1..=data_publisher_id_len);
         let data_publisher_id = String::from_utf8(id_bytes.to_vec()).unwrap();
 
         let is_string = bytes[1 + data_publisher_id_len] != 0;
-
         let data = bytes.slice(1 + data_publisher_id_len + 1..len);
 
         Ok(MessageData {

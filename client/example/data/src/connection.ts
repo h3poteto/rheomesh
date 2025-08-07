@@ -36,7 +36,8 @@ export function setup() {
 
 async function connect() {
   console.log("Starting connection");
-  ws = new WebSocket("ws://localhost:4000/socket?room=example");
+  const port = import.meta.env.VITE_SERVER_PORT || 4000;
+  ws = new WebSocket(`ws://localhost:${port}/socket?room=example`);
   ws.onopen = () => {
     console.log("Connected to server");
     connectButton.disabled = true;
