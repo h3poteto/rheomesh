@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    config::{MediaConfig, WebRTCTransportConfig, RID},
+    config::{MediaConfig, RID, WebRTCTransportConfig},
     data_publisher::DataPublisher,
     error::{Error, SubscriberErrorKind},
     local_track::LocalTrack,
@@ -15,7 +15,7 @@ use crate::{
     subscribe_transport::SubscribeTransport,
     worker::WorkerEvent,
 };
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use uuid::Uuid;
 
 /// Router accommodates multiple transports and they can communicate with each other. That means transports belonging to the same Router can send/receive their media. Router is like a meeting room.
@@ -24,8 +24,8 @@ pub struct Router {
     pub id: String,
     publishers: Vec<(String, Arc<Mutex<Publisher>>)>,
     relayed_publishers: Vec<(String, Arc<Mutex<RelayedPublisher>>)>,
-    data_publishers: HashMap<String, Arc<DataPublisher>>,
-    relayed_data_publishers: Vec<(String, Arc<RelayedDataPublisher>)>,
+    data_publishers: HashMap<String, Arc<Mutex<DataPublisher>>>,
+    relayed_data_publishers: Vec<(String, Arc<Mutex<RelayedDataPublisher>>)>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     media_config: MediaConfig,
     relay_sender: Arc<RelaySender>,
@@ -137,9 +137,7 @@ impl Router {
                     r.publishers.retain(|(id, _)| *id != track_id);
                 }
                 RouterEvent::GetPublisher(track_id, reply_sender) => {
-                    tracing::debug!("getting router lock");
                     let r = router.lock().await;
-                    tracing::debug!("got router lock");
                     let track = r
                         .publishers
                         .iter()
@@ -160,7 +158,12 @@ impl Router {
                 }
                 RouterEvent::DataPublished(data_publisher) => {
                     let mut r = router.lock().await;
-                    let data_id = data_publisher.id.clone();
+                    #[allow(unused)]
+                    let mut data_id = "".to_string();
+                    {
+                        let data_publisher = data_publisher.lock().await;
+                        data_id = data_publisher.id.clone();
+                    }
                     r.data_publishers.insert(data_id, data_publisher);
                 }
                 RouterEvent::DataRemoved(data_publisher_id) => {
@@ -212,7 +215,7 @@ impl Router {
                 return Err(Error::new_subscriber(
                     format!("Publisher for {} is not found", publisher_id),
                     SubscriberErrorKind::TrackNotFoundError,
-                ))
+                ));
             }
             Some(publisher) => Ok(publisher),
         }
@@ -233,7 +236,7 @@ impl Router {
     pub(crate) async fn find_local_data_publisher(
         event_sender: mpsc::UnboundedSender<RouterEvent>,
         data_publisher_id: String,
-    ) -> Result<Arc<DataPublisher>, Error> {
+    ) -> Result<Arc<Mutex<DataPublisher>>, Error> {
         let (tx, rx) = oneshot::channel();
 
         let _ = event_sender.send(RouterEvent::GetDataPublisher(data_publisher_id.clone(), tx));
@@ -244,7 +247,7 @@ impl Router {
                 return Err(Error::new_subscriber(
                     format!("DataPublisher for {} is not found", data_publisher_id),
                     SubscriberErrorKind::TrackNotFoundError,
-                ))
+                ));
             }
             Some(data_publisher) => Ok(data_publisher),
         }
@@ -261,7 +264,7 @@ impl Router {
     pub(crate) async fn add_relayed_data_publisher(
         &mut self,
         data_publisher_id: String,
-        relayed_data_publisher: Arc<RelayedDataPublisher>,
+        relayed_data_publisher: Arc<Mutex<RelayedDataPublisher>>,
     ) {
         self.relayed_data_publishers
             .push((data_publisher_id, relayed_data_publisher));
@@ -281,7 +284,7 @@ impl Router {
                 return Err(Error::new_subscriber(
                     format!("RelayedPublisher for {} is not found", publisher_id),
                     SubscriberErrorKind::TrackNotFoundError,
-                ))
+                ));
             }
             Some(publisher) => Ok(publisher),
         }
@@ -290,7 +293,7 @@ impl Router {
     pub(crate) async fn find_relayed_data_publisher(
         event_sender: mpsc::UnboundedSender<RouterEvent>,
         data_publisher_id: String,
-    ) -> Result<Arc<RelayedDataPublisher>, Error> {
+    ) -> Result<Arc<Mutex<RelayedDataPublisher>>, Error> {
         let (tx, rx) = oneshot::channel();
 
         let _ = event_sender.send(RouterEvent::GetRelayedDataPublisher(
@@ -307,7 +310,7 @@ impl Router {
                         data_publisher_id
                     ),
                     SubscriberErrorKind::TrackNotFoundError,
-                ))
+                ));
             }
             Some(data_publisher) => Ok(data_publisher),
         }
@@ -343,15 +346,18 @@ impl Router {
 pub(crate) enum RouterEvent {
     MediaPublished(String, Arc<Mutex<Publisher>>),
     PublisherRemoved(String),
-    DataPublished(Arc<DataPublisher>),
+    DataPublished(Arc<Mutex<DataPublisher>>),
     DataRemoved(String),
     GetPublisher(String, oneshot::Sender<Option<Arc<Mutex<Publisher>>>>),
-    GetDataPublisher(String, oneshot::Sender<Option<Arc<DataPublisher>>>),
+    GetDataPublisher(String, oneshot::Sender<Option<Arc<Mutex<DataPublisher>>>>),
     GetRelayedPublisher(
         String,
         oneshot::Sender<Option<Arc<Mutex<RelayedPublisher>>>>,
     ),
-    GetRelayedDataPublisher(String, oneshot::Sender<Option<Arc<RelayedDataPublisher>>>),
+    GetRelayedDataPublisher(
+        String,
+        oneshot::Sender<Option<Arc<Mutex<RelayedDataPublisher>>>>,
+    ),
     Closed,
 }
 

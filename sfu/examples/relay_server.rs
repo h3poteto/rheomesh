@@ -6,10 +6,10 @@ use std::sync::Arc;
 use actix::{Actor, Message, StreamHandler};
 use actix::{AsyncContext, Handler};
 use actix_web::web::{Data, Query};
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Responder, web};
 use actix_web_actors::ws;
 use futures_util::StreamExt;
-use redis::{AsyncCommands, Commands};
+use redis::AsyncCommands;
 use rheomesh::config::MediaConfig;
 use rheomesh::publisher::Publisher;
 use rheomesh::subscriber::Subscriber;
@@ -26,6 +26,7 @@ use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 mod common;
+use common::redis::{delete_room, get_pair_servers, store_room};
 use common::room::{Room, RoomOwner};
 
 #[actix_web::main]
@@ -115,54 +116,6 @@ async fn socket(
             ws::start(server, &req, stream)
         }
     }
-}
-
-fn store_room(router_id: String, room_id: String, ip: String, port: u16) {
-    // We are using redis to communicate between servers.
-    // When you create your own server, you can use any communication method you like.
-    // For example, WebSocket, gRPC, etc.
-    let redis_host = env::var("REDIS_HOST").unwrap();
-    let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
-    let mut conn = client.get_connection().unwrap();
-    let field = format!("{}|{}", ip, port);
-    // hset overwrite the value if it exists.
-    let _: () = conn.hset(room_id, field, router_id).unwrap();
-}
-
-fn delete_room(room_id: String, ip: String, port: u16) {
-    let redis_host = env::var("REDIS_HOST").unwrap();
-    let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
-    let mut conn = client.get_connection().unwrap();
-    let field = format!("{}|{}", ip, port);
-    // hdel delete the value if it exists.
-    let _: () = conn.hdel(room_id, field).unwrap();
-}
-
-fn get_pair_servers(
-    room_id: String,
-    my_ip: String,
-    my_port: u16,
-) -> HashMap<(String, u16), String> {
-    let redis_host = env::var("REDIS_HOST").unwrap();
-    let client = redis::Client::open(format!("redis://{}/", redis_host)).unwrap();
-    let mut conn = client.get_connection().unwrap();
-    let mut res: HashMap<String, String> = conn.hgetall(room_id).unwrap();
-    let field = format!("{}|{}", my_ip, my_port);
-    let _ = res.remove(&field);
-    let parsed: HashMap<(String, u16), String> = res
-        .into_iter()
-        .filter_map(|(key, value)| {
-            let parts: Vec<&str> = key.split('|').collect();
-            if parts.len() == 2 {
-                let ip = parts[0].to_string();
-                let port = parts[1].parse::<u16>().unwrap_or(0);
-                Some(((ip, port), value))
-            } else {
-                None
-            }
-        })
-        .collect();
-    parsed
 }
 
 struct WebSocket {
