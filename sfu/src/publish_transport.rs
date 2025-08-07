@@ -13,11 +13,11 @@ use enclose::enc;
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 use webrtc::{
     data_channel::RTCDataChannel,
@@ -26,11 +26,10 @@ use webrtc::{
         ice_gathering_state::RTCIceGatheringState,
     },
     peer_connection::{
-        peer_connection_state::RTCPeerConnectionState,
+        RTCPeerConnection, peer_connection_state::RTCPeerConnectionState,
         sdp::session_description::RTCSessionDescription, signaling_state::RTCSignalingState,
-        RTCPeerConnection,
     },
-    rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
+    rtp_transceiver::{RTCRtpTransceiver, rtp_receiver::RTCRtpReceiver},
     stats,
     track::track_remote::TrackRemote,
 };
@@ -44,8 +43,8 @@ pub struct PublishTransport {
     pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
     published_channel: Arc<replay_channel::ReplayChannel<Arc<Mutex<Publisher>>>>,
     published_receiver: Arc<Mutex<mpsc::Receiver<Arc<Mutex<Publisher>>>>>,
-    data_published_sender: broadcast::Sender<Arc<DataPublisher>>,
-    data_published_receiver: Arc<Mutex<broadcast::Receiver<Arc<DataPublisher>>>>,
+    data_published_sender: broadcast::Sender<Arc<Mutex<DataPublisher>>>,
+    data_published_receiver: Arc<Mutex<broadcast::Receiver<Arc<Mutex<DataPublisher>>>>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     // For RTCP writer
     rtcp_sender_channel: Arc<RtcpSender>,
@@ -157,10 +156,17 @@ impl PublishTransport {
 
     /// This starts publishing the data channel.
     /// * `label` - The label of the data channel to be published. You can get it from the data channel object in client-side.
-    pub async fn data_publish(&self, label: String) -> Result<Arc<DataPublisher>, Error> {
+    pub async fn data_publish(&self, label: String) -> Result<Arc<Mutex<DataPublisher>>, Error> {
         let receiver = self.data_published_receiver.clone();
         while let Ok(data_publisher) = receiver.lock().await.recv().await {
-            if data_publisher.label == label {
+            let mut res = false;
+            {
+                let data_publisher = data_publisher.lock().await;
+                if data_publisher.label == label {
+                    res = true;
+                }
+            }
+            if res {
                 return Ok(data_publisher);
             }
         }
@@ -327,7 +333,7 @@ impl PublishTransport {
                         let id = channel.id().to_string();
                         tracing::info!("DataChannel is opened: id={}, label={}, readyState={}", id, channel.label(), channel.ready_state());
                         Box::pin(async move {
-                            let data_publisher = Arc::new(DataPublisher::new(channel, router_sender.clone(), relay_sender));
+                            let data_publisher = Arc::new(Mutex::new(DataPublisher::new(channel, router_sender.clone(), relay_sender)));
                             data_published_sender.send(data_publisher.clone()).expect("could not send data published to publisher");
                             let _ = router_sender.send(RouterEvent::DataPublished(data_publisher));
                         })

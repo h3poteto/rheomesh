@@ -4,7 +4,7 @@ use derivative::Derivative;
 use enclose::enc;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
-use webrtc::data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel};
+use webrtc::data_channel::{RTCDataChannel, data_channel_message::DataChannelMessage};
 
 use crate::{
     data_channel::Channel,
@@ -81,6 +81,8 @@ impl DataPublisher {
         port: u16,
         router_id: String,
     ) -> Result<bool, Error> {
+        // これをnewで呼び出すという案はある．
+        // のだが，それをやるとportを毎回allocateされる．これはポート使いすぎやろ
         if self.relay_udp_sender.is_none() {
             self.relay_udp_sender = Some(Arc::new(RelayUDPSender::new().await?));
         }
