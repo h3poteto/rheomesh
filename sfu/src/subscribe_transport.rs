@@ -1,13 +1,13 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
 
 use derivative::Derivative;
 use enclose::enc;
 use tokio::{
-    sync::{mpsc, watch, Mutex},
+    sync::{Mutex, mpsc, watch},
     time::sleep,
 };
 use uuid::Uuid;
@@ -18,9 +18,9 @@ use webrtc::{
         ice_gathering_state::RTCIceGatheringState,
     },
     peer_connection::{
-        offer_answer_options::RTCOfferOptions, peer_connection_state::RTCPeerConnectionState,
+        RTCPeerConnection, offer_answer_options::RTCOfferOptions,
+        peer_connection_state::RTCPeerConnectionState,
         sdp::session_description::RTCSessionDescription, signaling_state::RTCSignalingState,
-        RTCPeerConnection,
     },
     rtp_transceiver::rtp_codec::RTCRtpCodecCapability,
     stats,
@@ -33,7 +33,7 @@ use webrtc_sdp::attribute_type::{SdpAttribute, SdpAttributeType};
 use webrtc_sdp::parse_sdp;
 
 use crate::{
-    config::{find_extmap_order, MediaConfig, WebRTCTransportConfig, RID},
+    config::{MediaConfig, RID, WebRTCTransportConfig, find_extmap_order},
     data_channel::Channel,
     data_subscriber::DataSubscriber,
     error::{Error, TransportErrorKind},
@@ -168,7 +168,7 @@ impl SubscribeTransport {
     async fn find_data_publisher(
         &self,
         data_publisher_id: String,
-    ) -> Result<Arc<dyn Channel>, Error> {
+    ) -> Result<Arc<Mutex<dyn Channel>>, Error> {
         match Router::find_local_data_publisher(
             self.router_event_sender.clone(),
             data_publisher_id.clone(),
@@ -288,8 +288,9 @@ impl SubscribeTransport {
 
     async fn subscribe_data(
         &self,
-        data_publisher: Arc<dyn Channel>,
+        data_publisher: Arc<Mutex<dyn Channel>>,
     ) -> Result<DataSubscriber, Error> {
+        let data_publisher = data_publisher.lock().await;
         let data_sender = data_publisher.data_sender().clone();
 
         let data_channel = self

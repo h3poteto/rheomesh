@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use actix::{Actor, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::web::{Data, Query};
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Responder, web};
 use actix_web_actors::ws;
 use rheomesh::config::MediaConfig;
 use rheomesh::data_publisher::DataPublisher;
@@ -94,7 +94,7 @@ struct WebSocket {
     room: Arc<Room<Self>>,
     publish_transport: Arc<rheomesh::publish_transport::PublishTransport>,
     subscribe_transport: Arc<rheomesh::subscribe_transport::SubscribeTransport>,
-    data_publishers: Arc<Mutex<HashMap<String, Arc<DataPublisher>>>>,
+    data_publishers: Arc<Mutex<HashMap<String, Arc<Mutex<DataPublisher>>>>>,
     data_subscribers: Arc<Mutex<HashMap<String, Arc<DataSubscriber>>>>,
 }
 
@@ -304,13 +304,19 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     match publish_transport.data_publish(label).await {
                         Ok(publisher) => {
-                            tracing::debug!("published a data channel: {}", publisher.id);
+                            #[allow(unused)]
+                            let mut publisher_id = "".to_string();
+                            {
+                                let publisher = publisher.lock().await;
+                                publisher_id = publisher.id.clone();
+                                tracing::debug!("published a data channel: {}", publisher.id);
+                            }
 
                             let mut p = publishers.lock().await;
-                            p.insert(publisher.id.clone(), publisher.clone());
+                            p.insert(publisher_id.clone(), publisher.clone());
                             room.get_peers(&address).iter().for_each(|peer| {
                                 peer.do_send(SendingMessage::Published {
-                                    publisher_id: publisher.id.clone(),
+                                    publisher_id: publisher_id.clone(),
                                 });
                             });
                         }
@@ -325,7 +331,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 actix::spawn(async move {
                     let mut p = publishers.lock().await;
                     if let Some(publisher) = p.remove(&publisher_id) {
-                        publisher.close().await;
+                        publisher.lock().await.close().await;
                     }
                 });
             }

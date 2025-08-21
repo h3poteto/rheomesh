@@ -4,7 +4,7 @@ use derivative::Derivative;
 use enclose::enc;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
-use webrtc::data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel};
+use webrtc::data_channel::{RTCDataChannel, data_channel_message::DataChannelMessage};
 
 use crate::{
     data_channel::Channel,

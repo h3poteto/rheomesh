@@ -5,7 +5,7 @@ use bytes::Bytes;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream, UdpSocket},
-    sync::{broadcast, Mutex},
+    sync::{Mutex, broadcast},
 };
 
 use crate::{
@@ -40,7 +40,12 @@ pub(crate) struct RelayServer {
         Mutex<HashMap<RouterId, Arc<Mutex<HashMap<PublisherId, Arc<Mutex<RelayedPublisher>>>>>>>,
     >,
     data_publishers: Arc<
-        Mutex<HashMap<RouterId, Arc<Mutex<HashMap<DataPublisherId, Arc<RelayedDataPublisher>>>>>>,
+        Mutex<
+            HashMap<
+                RouterId,
+                Arc<Mutex<HashMap<DataPublisherId, Arc<Mutex<RelayedDataPublisher>>>>>,
+            >,
+        >,
     >,
     rtp_servers: Arc<Mutex<HashMap<RouterId, Arc<Mutex<RelayRTPServer>>>>>,
     sctp_servers: Arc<Mutex<HashMap<RouterId, Arc<Mutex<RelaySCTPServer>>>>>,
@@ -135,7 +140,7 @@ impl RelayServer {
                         status: "error".to_string(),
                         message: Some("router not found".to_string()),
                         udp_started: None,
-                    }
+                    };
                 }
             }
 
@@ -344,7 +349,7 @@ impl RelayServer {
                         status: "error".to_string(),
                         message: Some("router not found".to_string()),
                         udp_started: None,
-                    }
+                    };
                 }
             }
 
@@ -475,8 +480,13 @@ impl RelayServer {
         }
     }
 
-    async fn create_data_publisher(&self, data_publisher_id: String) -> Arc<RelayedDataPublisher> {
-        let data_publisher = Arc::new(RelayedDataPublisher::new(data_publisher_id.clone()));
+    async fn create_data_publisher(
+        &self,
+        data_publisher_id: String,
+    ) -> Arc<Mutex<RelayedDataPublisher>> {
+        let data_publisher = Arc::new(Mutex::new(RelayedDataPublisher::new(
+            data_publisher_id.clone(),
+        )));
 
         data_publisher
     }
@@ -585,7 +595,7 @@ pub(crate) struct RelaySCTPServer {
 impl RelaySCTPServer {
     async fn new(
         udp_port: u16,
-        publishers: Arc<Mutex<HashMap<DataPublisherId, Arc<RelayedDataPublisher>>>>,
+        publishers: Arc<Mutex<HashMap<DataPublisherId, Arc<Mutex<RelayedDataPublisher>>>>>,
     ) -> Result<Self, Error> {
         let (closed_sender, _closed_receiver) = broadcast::channel(1);
 
@@ -610,7 +620,7 @@ impl RelaySCTPServer {
     async fn run_udp(
         udp_socket: UdpSocket,
         udp_port: u16,
-        publishers: Arc<Mutex<HashMap<DataPublisherId, Arc<RelayedDataPublisher>>>>,
+        publishers: Arc<Mutex<HashMap<DataPublisherId, Arc<Mutex<RelayedDataPublisher>>>>>,
         closed_sender: broadcast::Sender<bool>,
     ) -> Result<bool, Error> {
         let mut closed_receiver = closed_sender.subscribe();
@@ -630,9 +640,11 @@ impl RelaySCTPServer {
                     let message_data = MessageData::unmarshal(&bytes, len)?;
                     let mes = message_data.message;
                     let id = message_data.data_publisher_id;
+                    tracing::trace!("message received with udp: {:#?}", mes);
 
                     let publishers = publishers.lock().await;
                     if let Some(publisher) = publishers.get(&DataPublisherId(id.clone())) {
+                        let publisher = publisher.lock().await;
                         if let Err(err) = publisher.data_sender.send(mes) {
                             tracing::error!(
                                 "RelayedDataPublisher id={} failed to send data: {}",
