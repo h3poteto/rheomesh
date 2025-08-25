@@ -1891,9 +1891,9 @@ __metadata:
   linkType: hard
 
 "@types/sdp-transform@npm:^2":
-  version: 2.4.10
-  resolution: "@types/sdp-transform@npm:2.4.10"
-  checksum: 10c0/3482950907edc1b841a9d550c391b89b1d56f078bed33e83fb01d2de3097c6045d4627fb50b192712ff34c71784b476dce044c4df735808a9d0bfeca1e77df7d
+  version: 2.15.0
+  resolution: "@types/sdp-transform@npm:2.15.0"
+  checksum: 10c0/8740a51ef3478dcc560952d815edb650680f924e00fcb19eea74a8422640e9a1e18a63d9dda750576598cb1c15b8bb6a68bd5076a9e9ac170d828cb97fa1ff26
   languageName: node
   linkType: hard
 
