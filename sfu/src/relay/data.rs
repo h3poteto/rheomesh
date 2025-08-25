@@ -244,3 +244,55 @@ pub(crate) enum RelayMessage {
     #[serde(rename = "channeldata")]
     Channel(ChannelData),
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_packet_data() {
+        let original_packet = rtp::packet::Packet::default();
+        let original_layer = Layer {
+            spatial_id: 1,
+            temporal_id: 2,
+        };
+        let original_ssrc = 13579;
+        let original_track_id = "test-track".to_string();
+
+        let packet_data = PacketData {
+            packet: original_packet.clone(),
+            layer: original_layer.clone(),
+            ssrc: original_ssrc,
+            track_id: original_track_id.clone(),
+        };
+
+        let marshaled = packet_data.marshal().unwrap();
+        let unmarshaled = PacketData::unmarshal(&marshaled, marshaled.len()).unwrap();
+
+        assert_eq!(unmarshaled.packet, original_packet);
+        assert_eq!(unmarshaled.layer, original_layer);
+        assert_eq!(unmarshaled.ssrc, original_ssrc);
+        assert_eq!(unmarshaled.track_id, original_track_id);
+    }
+
+    #[test]
+    fn test_message_data() {
+        let original_message = DataChannelMessage {
+            is_string: true,
+            data: Bytes::from("Hello, World!"),
+        };
+        let original_data_publisher_id = "publisher-123".to_string();
+
+        let message_data = MessageData {
+            message: original_message.clone(),
+            data_publisher_id: original_data_publisher_id.clone(),
+        };
+
+        let marshaled = message_data.marshal().unwrap();
+        let unmarshaled = MessageData::unmarshal(&marshaled, marshaled.len()).unwrap();
+
+        assert_eq!(unmarshaled.message.is_string, original_message.is_string);
+        assert_eq!(unmarshaled.message.data, original_message.data);
+        assert_eq!(unmarshaled.data_publisher_id, original_data_publisher_id);
+    }
+}
