@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 
 /// Layer information in a [`webrtc::rtp::packet::Packet`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Layer {
     /// Temporal ID of SVC. Refs: <https://datatracker.ietf.org/doc/html/rfc6190>
     pub temporal_id: u8,
