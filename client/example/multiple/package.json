@@ -20,5 +20,5 @@
     "rheomesh": "*",
     "typescript": "^5"
   },
-  "packageManager": "yarn@4.9.2"
+  "packageManager": "yarn@4.9.4"
 }
