@@ -22,6 +22,7 @@ mod prober;
 pub mod publish_transport;
 /// Audio and video methods for track.
 pub mod publisher;
+/// Recording is a module that provides methods to record media.
 pub mod recording;
 /// Relay is a module that provides methods to transfer publishers to other servers.
 pub mod relay;

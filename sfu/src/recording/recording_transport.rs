@@ -1,6 +1,6 @@
 use std::sync::{
-    atomic::{AtomicU16, AtomicU32},
     Arc,
+    atomic::{AtomicU16, AtomicU32},
 };
 
 use derivative::Derivative;
@@ -9,12 +9,11 @@ use uuid::Uuid;
 use webrtc::{
     rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication,
     sdp::{
-        self,
+        self, MediaDescription, SessionDescription,
         description::{
             common::{Address, Attribute, ConnectionInformation},
             media::MediaName,
         },
-        MediaDescription, SessionDescription,
     },
 };
 
@@ -27,6 +26,7 @@ use crate::{
 
 use super::recording_track::RecordingTrack;
 
+/// Transport that is used for recording a published track.
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct RecordingTransport {
@@ -57,6 +57,7 @@ impl RecordingTransport {
         })
     }
 
+    /// Generate SDP for the recording transport. You can use this SDP with both ffmpeg and GStreamer.
     pub async fn generate_sdp(&self, publisher_id: String) -> Result<String, Error> {
         let local_track = self.find_local_track(publisher_id, RID::HIGH).await?;
 

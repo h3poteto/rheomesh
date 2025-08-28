@@ -1,5 +1,6 @@
 mod data;
 pub(crate) mod receiver;
+/// DataPublisher that is received from another server.
 pub mod relayed_data_publisher;
 /// Publisher that is received from another server.
 pub mod relayed_publisher;

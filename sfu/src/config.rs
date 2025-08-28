@@ -237,7 +237,7 @@ impl From<u8> for RID {
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     /// TCP port for the relay server. This is the port that the relay server will use to receive TCP messages from the sender.
-    /// The default value is 9442.
+    /// The default value is 9443.
     pub relay_server_tcp_port: u16,
     /// Private IP address of your server. This IP is used to communicate with other servers when relaying tracks.
     /// If your server is located in public subnet and it has a public IP address, you can set the public IP to this field.
@@ -249,7 +249,7 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         let ip = local_ip().unwrap();
         Self {
-            relay_server_tcp_port: 9442,
+            relay_server_tcp_port: 9443,
             private_ip: ip.to_string(),
         }
     }
