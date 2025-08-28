@@ -1,6 +1,6 @@
 use std::sync::{
-    atomic::{AtomicU16, AtomicU32, Ordering},
     Arc,
+    atomic::{AtomicU16, AtomicU32, Ordering},
 };
 
 use derivative::Derivative;
@@ -15,6 +15,7 @@ use crate::{
     utils::ports::find_unused_port,
 };
 
+/// RecordingTrack represent a track that is used for recording a published track.
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct RecordingTrack {

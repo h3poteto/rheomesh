@@ -3,8 +3,10 @@ use webrtc::data_channel::data_channel_message::DataChannelMessage;
 
 use crate::data_channel::Channel;
 
+/// DataPublisher that is received from another server.
 #[derive(Debug)]
 pub struct RelayedDataPublisher {
+    ///The original data publisher ID.
     pub source_data_publisher_id: String,
     pub(crate) data_sender: broadcast::Sender<DataChannelMessage>,
 }
