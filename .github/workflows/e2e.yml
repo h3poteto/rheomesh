@@ -264,7 +264,7 @@ jobs:
           Xvfb :99 -screen 0 1280x720x24 &
       - name: docker
         run: |
-          docker compose up -d
+          docker compose -f compose.data.yaml up -d
           docker compose ps
       - name: Wait for service to be ready
         run: |
