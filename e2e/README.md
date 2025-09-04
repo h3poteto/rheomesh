@@ -12,5 +12,5 @@ $ yarn playwright install
 Then, you can run tests.
 
 ```
-$ yarn test
+$ HEADLESS=false yarn test
 ```

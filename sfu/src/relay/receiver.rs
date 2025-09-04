@@ -381,7 +381,8 @@ impl RelayServer {
 
                     let mut data_publishers = self.data_publishers.lock().await;
                     if let Some(router_publisher) = data_publishers.get_mut(&router_id) {
-                        if let Some(_) = router_publisher.lock().await.get(&data_publisher_id) {
+                        let mut router_publisher = router_publisher.lock().await;
+                        if let Some(_) = router_publisher.get(&data_publisher_id) {
                             // Don't need handle this pattern.
                         } else {
                             // Router exists, but data publisher does not exist.
@@ -396,8 +397,6 @@ impl RelayServer {
                                 )
                                 .await;
                             router_publisher
-                                .lock()
-                                .await
                                 .insert(data_publisher_id.clone(), data_publisher.clone());
                         }
                     } else {
