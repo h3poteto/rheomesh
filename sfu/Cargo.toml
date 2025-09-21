@@ -28,7 +28,7 @@ uuid = { version = "1.8", features = ["v4"] }
 webrtc = "0.13.0"
 webrtc-ice = "0.13.0"
 webrtc-sdp = "0.3.13"
-webrtc-srtp = "0.15.0"
+webrtc-srtp = "0.16.0"
 webrtc-util = "0.11.0"
 
 [dev-dependencies]
