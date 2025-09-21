@@ -29,7 +29,7 @@ webrtc = "0.13.0"
 webrtc-ice = "0.13.0"
 webrtc-sdp = "0.3.13"
 webrtc-srtp = "0.15.0"
-webrtc-util = "0.11.0"
+webrtc-util = "0.12.0"
 
 [dev-dependencies]
 redis = { version = "0.32", features = ["aio", "tokio-comp"] }
