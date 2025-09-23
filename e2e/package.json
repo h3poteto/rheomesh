@@ -4,7 +4,7 @@
   "main": "index.js",
   "author": "h3poteto",
   "private": true,
-  "packageManager": "yarn@4.9.4",
+  "packageManager": "yarn@4.10.3",
   "scripts": {
     "build": "tsc",
     "test": "playwright test"
