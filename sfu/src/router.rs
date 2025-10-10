@@ -194,6 +194,13 @@ impl Router {
                     {
                         tracing::error!("Failed to send RouterRemoved event id={}: {}", r.id, err);
                     }
+                    r.relayed_publishers.iter().for_each(|(_, p)| {
+                        let p = p.clone();
+                        tokio::spawn(async move {
+                            let guard = p.lock().await;
+                            guard.close();
+                        });
+                    });
                     break;
                 }
             }
