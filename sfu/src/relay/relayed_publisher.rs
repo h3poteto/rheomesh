@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::{
     net::UdpSocket,
-    sync::{broadcast, mpsc, Mutex},
+    sync::{Mutex, broadcast, mpsc},
 };
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
 
@@ -246,5 +246,6 @@ pub(crate) enum RelayedPublisherEvent {
 impl Drop for RelayedPublisher {
     fn drop(&mut self) {
         tracing::debug!("RelayedPublisher track_id={} is dropped", self.track_id);
+        let _ = self.closed_sender.send(true);
     }
 }

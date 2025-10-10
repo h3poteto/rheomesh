@@ -17,7 +17,9 @@
     "build": "tsc -p ./",
     "test": "NODE_ENV=test jest -u --maxWorkers=3"
   },
-  "files": ["/lib/**"],
+  "files": [
+    "/lib/**"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/h3poteto/rheomesh.git"
@@ -40,14 +42,21 @@
     "typescript": "^5.6.3"
   },
   "jest": {
-    "moduleFileExtensions": ["ts", "js"],
+    "moduleFileExtensions": [
+      "ts",
+      "js"
+    ],
     "moduleNameMapper": {
       "^@/(.+)": "<rootDir>/src/$1",
       "^~/(.+)": "<rootDir>/$1"
     },
-    "testMatch": ["**/tests/**/*.spec.ts"],
+    "testMatch": [
+      "**/tests/**/*.spec.ts"
+    ],
     "preset": "ts-jest/presets/default",
-    "setupFilesAfterEnv": ["<rootDir>/tests/jest.setup.js"],
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/jest.setup.js"
+    ],
     "transform": {
       "^.+\\.(ts|tsx)$": [
         "ts-jest",

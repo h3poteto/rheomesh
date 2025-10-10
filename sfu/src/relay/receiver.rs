@@ -76,6 +76,7 @@ impl RelayServer {
         loop {
             tokio::select! {
                 _ = stop_receiver.recv() => {
+                    self.close().await;
                     return Ok(false)
                 }
                 res = self.tcp_listener.accept() => {
@@ -488,6 +489,18 @@ impl RelayServer {
         )));
 
         data_publisher
+    }
+
+    async fn close(&self) {
+        tracing::debug!("Closing RelayServer...");
+        let publishers = self.publishers.lock().await;
+        for (_router_id, router_publishers) in publishers.iter() {
+            let router_publishers = router_publishers.lock().await;
+            for (_publisher_id, publisher) in router_publishers.iter() {
+                let publisher = publisher.lock().await;
+                publisher.close();
+            }
+        }
     }
 }
 
