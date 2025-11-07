@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, net::IpAddr, sync::Arc, time::Duration};
 
 use derivative::Derivative;
-use local_ip_address::linux::local_ip;
+use local_ip_address::local_ip;
 use webrtc::{
     api::setting_engine::SettingEngine, peer_connection::configuration::RTCConfiguration,
     rtp_transceiver::rtp_codec::RTCRtpCodecParameters, sdp::extmap,
