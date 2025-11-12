@@ -34,7 +34,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
       - name: Build Client
         working-directory: ./client
         run: |
@@ -86,7 +86,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
       - name: Build Client
         working-directory: ./client
         run: |
@@ -147,7 +147,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
       - name: Build Client
         working-directory: ./client
         run: |
@@ -216,7 +216,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
       - name: Install dependencies
         working-directory: ./e2e
         run: |
@@ -287,7 +287,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22.x
+          node-version: 24.x
       - name: Install dependencies
         working-directory: ./e2e
         run: |
