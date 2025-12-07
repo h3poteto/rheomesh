@@ -1,6 +1,6 @@
 services:
   frontend1:
-    image: node:22-slim
+    image: node:24-slim
     ports:
       - "3001:5173"
     volumes:
@@ -11,7 +11,7 @@ services:
       VITE_SERVER_PORT: 4001
     command: bash -c "yarn install && yarn workspace rheomesh build && yarn workspace data dev --host 0.0.0.0"
   frontend2:
-    image: node:22-slim
+    image: node:24-slim
     ports:
       - "3002:5173"
     volumes:
