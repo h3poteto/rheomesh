@@ -9,7 +9,7 @@ use std::{
 use actix_web::HttpRequest;
 use tokio::sync::Mutex;
 
-use crate::error::Error;
+use crate::error::{Error, WhipSdpErrorKind};
 
 #[derive(Debug, Clone)]
 pub struct ETagStore {
@@ -40,7 +40,7 @@ impl ETagStore {
             .ok_or_else(|| {
                 Error::new_whip_sdp(
                     "Missing If-Match header".to_string(),
-                    crate::error::WhipSdpErrorKind::MissingEtagError,
+                    WhipSdpErrorKind::MissingEtagError,
                 )
             })?;
 
@@ -54,7 +54,7 @@ impl ETagStore {
         }
         Err(Error::new_whip_sdp(
             "ETag mismatch".to_string(),
-            crate::error::WhipSdpErrorKind::EtagMismatchError,
+            WhipSdpErrorKind::EtagMismatchError,
         ))
     }
 
