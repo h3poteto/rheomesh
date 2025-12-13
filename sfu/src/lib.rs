@@ -31,6 +31,8 @@ mod replay_channel;
 pub mod router;
 /// RTP packet related module.
 pub mod rtp;
+#[cfg(feature = "whip")]
+pub mod signaling;
 /// [`webrtc::peer_connection::RTCPeerConnection`] methods for subscriber.
 pub mod subscribe_transport;
 /// Audio and video methods for subscriber.
