@@ -243,6 +243,8 @@ pub struct WorkerConfig {
     /// If your server is located in public subnet and it has a public IP address, you can set the public IP to this field.
     /// The default value is calculated from the server's network interface.
     pub private_ip: String,
+    pub http_server_addr: IpAddr,
+    pub http_server_port: u16,
 }
 
 impl Default for WorkerConfig {
@@ -251,6 +253,8 @@ impl Default for WorkerConfig {
         Self {
             relay_server_tcp_port: 9443,
             private_ip: ip.to_string(),
+            http_server_addr: "127.0.0.1".parse().unwrap(),
+            http_server_port: 8080,
         }
     }
 }

@@ -30,6 +30,8 @@ pub enum Error {
     RelayError(#[from] RelayError),
     #[error(transparent)]
     RecordingError(#[from] RecordingError),
+    #[error(transparent)]
+    WhipSdpError(#[from] WhipSdpError),
 }
 
 #[derive(thiserror::Error)]
@@ -71,6 +73,13 @@ pub struct RelayError {
 #[error("{kind}: {message}")]
 pub struct RecordingError {
     pub kind: RecordingErrorKind,
+    pub message: String,
+}
+
+#[derive(thiserror::Error)]
+#[error("{kind}: {message}")]
+pub struct WhipSdpError {
+    pub kind: WhipSdpErrorKind,
     pub message: String,
 }
 
@@ -128,6 +137,22 @@ pub enum RecordingErrorKind {
     PortNotFoundError,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum WhipSdpErrorKind {
+    #[error("invalid content type error")]
+    InvalidContentTypeError,
+    #[error("invalid string error")]
+    InvalidStringError,
+    #[error("invalid sdp offer error")]
+    InvalidSdpOfferError,
+    #[error("invalid sdp answer error")]
+    InvalidSdpAnswerError,
+    #[error("missing etag error")]
+    MissingEtagError,
+    #[error("etag mismatch error")]
+    EtagMismatchError,
+}
+
 impl Error {
     pub fn new_transport(message: String, kind: TransportErrorKind) -> Error {
         Error::TransportError(TransportError { kind, message })
@@ -151,6 +176,10 @@ impl Error {
 
     pub fn new_recording(message: String, kind: RecordingErrorKind) -> Error {
         Error::RecordingError(RecordingError { kind, message })
+    }
+
+    pub fn new_whip_sdp(message: String, kind: WhipSdpErrorKind) -> Error {
+        Error::WhipSdpError(WhipSdpError { kind, message })
     }
 }
 
@@ -217,5 +246,32 @@ impl fmt::Debug for RecordingError {
         builder.field("message", &self.message);
 
         builder.finish()
+    }
+}
+
+impl fmt::Debug for WhipSdpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut builder = f.debug_struct("rheomesh::WhipSdpError");
+
+        builder.field("kind", &self.kind);
+        builder.field("message", &self.message);
+
+        builder.finish()
+    }
+}
+
+#[cfg(feature = "whip")]
+impl From<Error> for actix_web::Error {
+    fn from(err: Error) -> actix_web::Error {
+        match err {
+            Error::WhipSdpError(e) => match e.kind {
+                WhipSdpErrorKind::MissingEtagError => {
+                    actix_web::error::ErrorPreconditionRequired(e)
+                }
+                WhipSdpErrorKind::EtagMismatchError => actix_web::error::ErrorPreconditionFailed(e),
+                _ => actix_web::error::ErrorBadRequest(e),
+            },
+            _ => actix_web::error::ErrorInternalServerError(err),
+        }
     }
 }
