@@ -241,6 +241,27 @@ impl PublishTransport {
         });
     }
 
+    pub async fn restart_ice(&self) -> Result<(), Error> {
+        tracing::debug!("publisher restarting ice");
+        let state = self.peer_connection.connection_state();
+        if state == RTCPeerConnectionState::New || state == RTCPeerConnectionState::Closed {
+            return Err(Error::new_transport(
+                format!("Connection state is not correct: {}", state),
+                TransportErrorKind::ICERestartError,
+            ));
+        }
+        let _ = self.peer_connection.restart_ice().await?;
+        Ok(())
+    }
+
+    pub async fn get_local_description(&self) -> Option<RTCSessionDescription> {
+        self.peer_connection.local_description().await
+    }
+
+    pub async fn get_remote_description(&self) -> Option<RTCSessionDescription> {
+        self.peer_connection.remote_description().await
+    }
+
     // ICE events
     async fn ice_state_hooks(&mut self) {
         let peer = self.peer_connection.clone();
