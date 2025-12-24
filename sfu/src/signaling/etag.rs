@@ -32,7 +32,8 @@ impl ETagStore {
         format!("W/\"{}\"", etag_value)
     }
 
-    pub async fn validate(&self, session_id: &str, req: HttpRequest) -> Result<(), Error> {
+    /// Validates the ETag from the If-Match header. If it matches the current value, returns Ok(false). If it is "*", returns Ok(true). Otherwise, returns an error.
+    pub async fn validate(&self, session_id: &str, req: HttpRequest) -> Result<bool, Error> {
         let etag_header = req
             .headers()
             .get("If-Match")
@@ -44,12 +45,16 @@ impl ETagStore {
                 )
             })?;
 
+        if etag_header == "*" {
+            return Ok(true);
+        }
+
         let counters = self.counters.lock().await;
         if let Some(counter) = counters.get(session_id) {
             let current_value = counter.load(Ordering::SeqCst);
             let expected_etag = format!("W/\"{}\"", current_value);
             if etag_header == expected_etag {
-                return Ok(());
+                return Ok(false);
             }
         }
         Err(Error::new_whip_sdp(

@@ -5,10 +5,8 @@ use actix_web::{
     web::{self},
 };
 use async_trait::async_trait;
-use webrtc::{
-    ice_transport::ice_candidate::RTCIceCandidateInit,
-    peer_connection::sdp::session_description::RTCSessionDescription,
-};
+use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc_sdp::{attribute_type::SdpAttribute, parse_sdp};
 
 use crate::{
     error::{Error, WhipSdpErrorKind},
@@ -16,7 +14,11 @@ use crate::{
     transport::Transport,
 };
 
-use super::etag::ETagStore;
+use super::{
+    etag::ETagStore,
+    parser::{parse_candidates, parse_ice_pwd, parse_ice_ufrag},
+    sdp_session::{get_current_ice, rfc8840},
+};
 
 #[async_trait]
 pub trait PublishTransportProvider: Send + Sync {
@@ -106,7 +108,7 @@ where
             return Err(e);
         }
 
-        self.etag_store.validate(&session_id, req).await?;
+        let need_restart = self.etag_store.validate(&session_id, req).await?;
 
         let publish_transport = self
             .provider
@@ -115,7 +117,7 @@ where
             .map_err(|e| {
                 Error::new_whip_sdp(
                     format!("Failed to get publish transport: {}", e),
-                    WhipSdpErrorKind::InvalidSdpOfferError,
+                    WhipSdpErrorKind::InvalidIceSdpfragError,
                 )
             })?;
 
@@ -123,15 +125,68 @@ where
             Error::new_whip_sdp(e.to_string(), WhipSdpErrorKind::InvalidStringError)
         })?;
 
-        let candidate_init = RTCIceCandidateInit {
-            candidate: sdp_string,
-            sdp_mid: None,
-            sdp_mline_index: None,
-            username_fragment: None,
-        };
+        match need_restart {
+            true => {
+                let current_remote_sdp = publish_transport
+                    .get_remote_description()
+                    .await
+                    .ok_or_else(|| {
+                        Error::new_whip_sdp(
+                            "Failed to get remote description".to_string(),
+                            WhipSdpErrorKind::FailedToGetRemoteSdpError,
+                        )
+                    })?;
+                let (current_ice_ufrag, current_ice_pwd) =
+                    get_current_ice(&current_remote_sdp).await?;
+                let ice_ufrag = parse_ice_ufrag(sdp_string.as_str());
+                let ice_pwd = parse_ice_pwd(sdp_string.as_str());
+                if ice_ufrag.is_some()
+                    && ice_pwd.is_some()
+                    && ice_ufrag.unwrap() != current_ice_ufrag
+                    && ice_pwd.unwrap() != current_ice_pwd
+                {
+                    let mut current_parsed =
+                        parse_sdp(&current_remote_sdp.sdp, false).map_err(|e| {
+                            Error::new_whip_sdp(
+                                format!("Failed to parse current remote SDP: {}", e),
+                                WhipSdpErrorKind::FailedToGetRemoteSdpError,
+                            )
+                        })?;
+                    let _ = current_parsed
+                        .add_attribute(SdpAttribute::IceUfrag(ice_ufrag.unwrap().to_string()))?;
+                    let _ = current_parsed
+                        .add_attribute(SdpAttribute::IcePwd(ice_pwd.unwrap().to_string()))?;
+                    let mut new_remote_sdp = current_remote_sdp.clone();
+                    new_remote_sdp.sdp = current_parsed.to_string();
+                    let answer = publish_transport.get_answer(new_remote_sdp).await?;
 
-        let _ = publish_transport.add_ice_candidate(candidate_init).await?;
-        Ok(HttpResponse::NoContent().finish())
+                    let candidates = parse_candidates(sdp_string.as_str());
+                    for candidate_init in candidates {
+                        let _ = publish_transport.add_ice_candidate(candidate_init).await?;
+                    }
+
+                    let return_sdp = rfc8840(&answer)?;
+
+                    let etag = self.etag_store.increment(&session_id).await;
+                    Ok(HttpResponse::Ok()
+                        .content_type("application/trickle-ice-sdpfrag")
+                        .insert_header(("ETag", etag))
+                        .body(return_sdp))
+                } else {
+                    Err(Error::new_whip_sdp(
+                        "ICE restart information missing or invalid".to_string(),
+                        WhipSdpErrorKind::IceInformationMissingError,
+                    ))
+                }
+            }
+            false => {
+                let candidates = parse_candidates(sdp_string.as_str());
+                for candidate_init in candidates {
+                    let _ = publish_transport.add_ice_candidate(candidate_init).await?;
+                }
+                Ok(HttpResponse::NoContent().finish())
+            }
+        }
     }
 
     /// DELETE /whip/session_id - For ending the session

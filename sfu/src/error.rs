@@ -151,6 +151,14 @@ pub enum WhipSdpErrorKind {
     MissingEtagError,
     #[error("etag mismatch error")]
     EtagMismatchError,
+    #[error("invalid ice sdpfrag error")]
+    InvalidIceSdpfragError,
+    #[error("failed to get remote sdp error")]
+    FailedToGetRemoteSdpError,
+    #[error("failed to get local ice error")]
+    FailedToGetLocalIceError,
+    #[error("ice information missing error")]
+    IceInformationMissingError,
 }
 
 impl Error {
@@ -268,7 +276,19 @@ impl From<Error> for actix_web::Error {
                 WhipSdpErrorKind::MissingEtagError => {
                     actix_web::error::ErrorPreconditionRequired(e)
                 }
+                WhipSdpErrorKind::FailedToGetRemoteSdpError => {
+                    actix_web::error::ErrorPreconditionFailed(e)
+                }
+                WhipSdpErrorKind::FailedToGetLocalIceError => {
+                    actix_web::error::ErrorPreconditionFailed(e)
+                }
+                WhipSdpErrorKind::IceInformationMissingError => {
+                    actix_web::error::ErrorPreconditionFailed(e)
+                }
                 WhipSdpErrorKind::EtagMismatchError => actix_web::error::ErrorPreconditionFailed(e),
+                WhipSdpErrorKind::InvalidContentTypeError => {
+                    actix_web::error::ErrorNotAcceptable(e)
+                }
                 _ => actix_web::error::ErrorBadRequest(e),
             },
             _ => actix_web::error::ErrorInternalServerError(err),
