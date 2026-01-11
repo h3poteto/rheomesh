@@ -218,12 +218,15 @@ where
     P: PublishTransportProvider + Clone + 'static,
 {
     pub fn configure(self, cfg: &mut web::ServiceConfig) {
+        let endpoint = web::Data::new(self);
+
         cfg.service(
             web::resource("/whip/{session_id}")
                 .route(web::post().to(Self::handle_offer_route))
                 .route(web::patch().to(Self::handle_tricle_ice_route))
                 .route(web::delete().to(Self::handle_delete_route)),
-        );
+        )
+        .app_data(endpoint);
     }
 
     async fn handle_offer_route(

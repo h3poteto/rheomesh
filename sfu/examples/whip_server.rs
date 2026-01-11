@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::{collections::HashMap, sync::Arc};
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message};
+use actix_cors::Cors;
 use actix_web::{
     self, App, HttpResponse, HttpServer, Responder, Result,
     web::{self, Data},
@@ -79,8 +80,11 @@ async fn main() -> std::io::Result<()> {
     let endpoint = WhipEndpoint::new(store);
 
     HttpServer::new(move || {
+        // For local development, do not use for production.
+        let cors = Cors::permissive();
         App::new()
             .wrap(TracingLogger::default())
+            .wrap(cors)
             .app_data(store_data.clone())
             .service(index)
             .service(join_room)
@@ -101,9 +105,9 @@ async fn index() -> impl Responder {
 #[actix_web::post("/rooms/{room_id}/join")]
 async fn join_room(
     room_id: web::Path<String>,
-    session_store: Data<Mutex<SessionStore>>,
+    session_store: Data<SessionStore>,
 ) -> Result<impl Responder> {
-    let room_owner = session_store.lock().await.owner.clone();
+    let room_owner = session_store.owner.clone();
     let find = room_owner
         .as_ref()
         .lock()
@@ -143,8 +147,6 @@ async fn join_room(
             };
             let addr = session.start();
             session_store
-                .lock()
-                .await
                 .sessions
                 .lock()
                 .await
@@ -172,8 +174,6 @@ async fn join_room(
             };
             let addr = session.start();
             session_store
-                .lock()
-                .await
                 .sessions
                 .lock()
                 .await

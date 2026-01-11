@@ -46,6 +46,7 @@ redis = { version = "0.32", features = ["aio", "tokio-comp"] }
 actix = "0.13"
 actix-web = "4.9"
 actix-web-actors = "4.3"
+actix-cors = "0.7"
 tracing-actix-web = "0.7"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 futures-util = "0.3.31"
