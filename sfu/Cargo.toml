@@ -8,6 +8,13 @@ license = "Apache-2.0"
 repository = "https://github.com/h3poteto/rheomesh"
 homepage = "https://github.com/h3poteto/rheomesh"
 
+[package.metadata.docs.rs]
+features = ["whip"]
+
+[features]
+default = []
+whip = ["dep:actix-web"]
+
 [dependencies]
 bincode = { version = "2.0.1", features = ["serde"]}
 bitvec = "1.0"
@@ -30,13 +37,22 @@ webrtc-ice = "0.14.0"
 webrtc-sdp = "0.3.13"
 webrtc-srtp = "0.16.0"
 webrtc-util = "0.12.0"
+actix-web = { version = "4.9", optional = true }
+async-trait = "0.1.89"
+nom = "8.0.0"
 
 [dev-dependencies]
 redis = { version = "0.32", features = ["aio", "tokio-comp"] }
 actix = "0.13"
 actix-web = "4.9"
 actix-web-actors = "4.3"
+actix-cors = "0.7"
 tracing-actix-web = "0.7"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 futures-util = "0.3.31"
 tokio-util = "0.7"
+
+[[example]]
+name = "whip_server"
+path = "examples/whip_server.rs"
+required-features = ["whip"]

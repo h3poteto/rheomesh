@@ -1,6 +1,6 @@
 import Head from "next/head";
-import { useRouter } from "next/router";
 import { useState } from "react";
+import { useRouter } from "next/router";
 
 export default function Home() {
   const [room, setRoom] = useState("");
@@ -14,8 +14,8 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Multiple</title>
-        <meta name="description" content="Multiple media example" />
+        <title>WHIP</title>
+        <meta name="description" content="WHIP example" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
