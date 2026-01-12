@@ -11,8 +11,9 @@ const offerOptions: RTCOfferOptions = {
 export class PublishTransport extends EventEmitter {
   private _peerConnection: RTCPeerConnection;
   private _signalingLock: boolean;
+  private _candidateQueue: Array<RTCIceCandidate> = [];
 
-  constructor(config: RTCConfiguration) {
+  constructor(config: RTCConfiguration, whip: boolean = false) {
     super();
     const peer = new RTCPeerConnection(config);
 
@@ -21,7 +22,7 @@ export class PublishTransport extends EventEmitter {
 
     this._peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        this.emit("icecandidate", event.candidate);
+        this._candidateQueue.push(event.candidate);
       }
     };
 
@@ -35,16 +36,18 @@ export class PublishTransport extends EventEmitter {
       }
     };
 
-    this._peerConnection.onnegotiationneeded = async (_event) => {
-      while (this._signalingLock) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      this._signalingLock = true;
-      const offer = await this._peerConnection.createOffer(offerOptions);
-      await this._peerConnection.setLocalDescription(offer);
+    if (!whip) {
+      this._peerConnection.onnegotiationneeded = async (_event) => {
+        while (this._signalingLock) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        this._signalingLock = true;
+        const offer = await this._peerConnection.createOffer(offerOptions);
+        await this._peerConnection.setLocalDescription(offer);
 
-      this.emit("negotiationneeded", offer);
-    };
+        this.emit("negotiationneeded", offer);
+      };
+    }
   }
 
   public async publish(
@@ -68,7 +71,7 @@ export class PublishTransport extends EventEmitter {
 
     const init = await this._peerConnection.createOffer(offerOptions);
     const offer = adjustExtmap(init);
-    console.log("offer:", offer);
+    console.debug("offer:", offer);
 
     await this._peerConnection.setLocalDescription(offer);
 
@@ -97,6 +100,13 @@ export class PublishTransport extends EventEmitter {
   }
 
   public async setAnswer(answer: RTCSessionDescription): Promise<void> {
+    while (this._candidateQueue.length > 0) {
+      const candidate = this._candidateQueue.shift();
+      if (candidate) {
+        this.emit("icecandidate", candidate);
+      }
+    }
+    console.debug("answer:", answer);
     await this._peerConnection.setRemoteDescription(answer);
   }
 
@@ -253,4 +263,14 @@ export function findTrackId(
   }
   const trackId = msidParts[1];
   return trackId;
+}
+
+export function rfc8840Candidate(sdp: RTCIceCandidate): string {
+  const sdpFragment = [
+    `m=${sdp.sdpMLineIndex}`,
+    `a=mid=${sdp.sdpMid}`,
+    `a=${sdp.candidate}`,
+    `a=end-of-candidates`,
+  ];
+  return sdpFragment.join("\r\n") + "\r\n";
 }
