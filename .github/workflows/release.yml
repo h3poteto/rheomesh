@@ -12,7 +12,7 @@ jobs:
         working-directory: ./sfu
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
@@ -33,7 +33,7 @@ jobs:
         working-directory: ./client
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Use Node.js 24.x
       uses: actions/setup-node@v6
       with:
