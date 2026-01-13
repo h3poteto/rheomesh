@@ -1,6 +1,6 @@
 services:
   jekyll:
-    image: ghcr.io/ledermann/rails-base-builder:3.0.0-alpine
+    image: ghcr.io/ledermann/rails-base-builder:3.4.8-alpine
     working_dir: /site
     volumes:
       - .:/site
