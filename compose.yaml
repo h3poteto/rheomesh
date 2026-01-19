@@ -25,7 +25,7 @@ services:
     command: bash -c "yarn install && yarn workspace rheomesh build && yarn workspace multiple dev -H 0.0.0.0"
 
   sfu1:
-    image: rust:1.90.0-slim
+    image: rust:1.92.0-slim
     ports:
       - "4001:4000"
       - "12000-12020:12000-12020/udp"
@@ -46,7 +46,7 @@ services:
       - net.ipv6.conf.all.disable_ipv6=1
       - net.ipv6.conf.default.disable_ipv6=1
   sfu2:
-    image: rust:1.90.0-slim
+    image: rust:1.92.0-slim
     ports:
       - "4002:4000"
       - "13000-13020:13000-13020/udp"
