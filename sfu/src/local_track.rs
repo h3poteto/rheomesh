@@ -8,7 +8,7 @@ use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndicat
 use webrtc::rtp::{self};
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
 use webrtc::{
-    rtp_transceiver::{rtp_receiver::RTCRtpReceiver, RTCRtpTransceiver},
+    rtp_transceiver::{RTCRtpTransceiver, rtp_receiver::RTCRtpReceiver},
     track::track_remote::TrackRemote,
 };
 

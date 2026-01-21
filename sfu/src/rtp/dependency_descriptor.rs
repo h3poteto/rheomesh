@@ -1,3 +1,4 @@
+// Refs: https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html
 use std::collections::HashMap;
 
 use bitvec::order::Msb0;
@@ -77,6 +78,9 @@ impl DependencyDescriptorParser {
     }
 
     fn template_layers(&mut self, bits: &mut BitIterator) {
+        self.template_spatial_id.clear();
+        self.template_temporal_id.clear();
+
         let mut temporal_id = 0;
         let mut spatial_id = 0;
         let mut template_count = 0;
@@ -98,7 +102,8 @@ impl DependencyDescriptorParser {
                         temporal_id = 0;
                         spatial_id += 1;
                     }
-                    _ => continue,
+                    3 => break,
+                    _ => unreachable!(),
                 }
             } else {
                 break;
