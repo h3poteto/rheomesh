@@ -20,14 +20,31 @@ use super::{
     sdp_session::{get_current_ice, rfc8840},
 };
 
+/// A trait to provide [`PublishTransport`] instances based on session IDs. For example,
+/// ```rust
+/// struct SessionStore {
+///   sessions: HashMap<String, Arc<PublishTransport>>,
+/// }
+/// #[async_trait::async_trait]
+/// impl PublishTransportProvider for SessionStore {
+///   async fn get_publish_transport(&self, session_id: &str) -> Result<Arc<PublishTransport>, actix_web::Error> {
+///     let transport = self.sessions.get(session_id)
+///       .cloned()
+///       .ok_or_else(|| actix_web::error::ErrorNotFound("Session not found"))
+///     Ok(transport)
+///   }
+/// }
+/// ```
 #[async_trait]
 pub trait PublishTransportProvider: Send + Sync {
+    ///Asynchronously retrieves a [`PublishTransport`] instance for the given session ID.
     async fn get_publish_transport(
         &self,
         session_id: &str,
     ) -> Result<Arc<PublishTransport>, actix_web::Error>;
 }
 
+/// WHIP signaling endpoint handler for [`actix_web`].
 #[derive(Debug, Clone)]
 pub struct WhipEndpoint<P> {
     provider: P,
@@ -60,7 +77,7 @@ where
     }
 
     /// POST /whip/session_id - For SDP offer
-    pub async fn handle_offer(
+    async fn handle_offer(
         &self,
         session_id: web::Path<String>,
         req: HttpRequest,
@@ -98,7 +115,7 @@ where
     }
 
     /// PATCH /whip/session_id - For tricle ICE
-    pub async fn handle_tricle_ice(
+    async fn handle_tricle_ice(
         &self,
         session_id: web::Path<String>,
         req: HttpRequest,
@@ -190,10 +207,7 @@ where
     }
 
     /// DELETE /whip/session_id - For ending the session
-    pub async fn handle_delete(
-        &self,
-        session_id: web::Path<String>,
-    ) -> Result<HttpResponse, Error> {
+    async fn handle_delete(&self, session_id: web::Path<String>) -> Result<HttpResponse, Error> {
         self.etag_store.remove(&session_id).await;
 
         let publish_transport = self
@@ -217,6 +231,22 @@ impl<P> WhipEndpoint<P>
 where
     P: PublishTransportProvider + Clone + 'static,
 {
+    /// Configures the Actix web service with WHIP endpoint routes. This configures the following routes:
+    ///- `POST /whip/{session_id}` for handling SDP offers.
+    ///- `PATCH /whip/{session_id}` for handling ICE trickle updates.
+    ///- `DELETE /whip/{session_id}` for ending the session.
+    ///
+    /// Please call this method within the `HttpServer` configuration.
+    /// ```rust
+    /// let endpoint = WhipEndpoint::new(provider);
+    /// HttpServer::new(move || {
+    ///   App::new()
+    ///     .configure(|cfg| endpoint.clone().configure(cfg))
+    /// })
+    /// .bind("0.0.0.0:4000")?
+    /// .run()
+    /// .await
+    /// ```
     pub fn configure(self, cfg: &mut web::ServiceConfig) {
         let endpoint = web::Data::new(self);
 

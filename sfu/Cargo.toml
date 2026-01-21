@@ -9,7 +9,9 @@ repository = "https://github.com/h3poteto/rheomesh"
 homepage = "https://github.com/h3poteto/rheomesh"
 
 [package.metadata.docs.rs]
-features = ["whip"]
+all-features = true
+
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
