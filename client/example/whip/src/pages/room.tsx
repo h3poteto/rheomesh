@@ -93,10 +93,9 @@ export default function Room() {
 
   const publish = async (stream: MediaStream) => {
     stream.getTracks().forEach(async (track) => {
-      const publisher = await publishTransport.current!.publish(
-        track,
-        simulcastEncodings(),
-      );
+      const publisher = await publishTransport.current!.publish(track, {
+        encodings: simulcastEncodings(),
+      });
       const response = await fetch(`${host}/whip/${sessionId.current}`, {
         method: "POST",
         body: publisher.offer.sdp,

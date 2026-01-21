@@ -8,6 +8,11 @@ const offerOptions: RTCOfferOptions = {
   offerToReceiveAudio: false,
 };
 
+export type PublishOptions = {
+  encodings?: Array<RTCRtpEncodingParameters>;
+  preferredCodec?: "VP8" | "VP9" | "H264" | "AV1";
+};
+
 export class PublishTransport extends EventEmitter {
   private _peerConnection: RTCPeerConnection;
   private _signalingLock: boolean;
@@ -52,22 +57,35 @@ export class PublishTransport extends EventEmitter {
 
   public async publish(
     track: MediaStreamTrack,
-    encodings?: Array<RTCRtpEncodingParameters>,
+    options?: PublishOptions,
   ): Promise<Publisher> {
     while (this._signalingLock) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     this._signalingLock = true;
 
-    let options: RTCRtpTransceiverInit = {
+    let transceiverOptions: RTCRtpTransceiverInit = {
       direction: "sendonly",
     };
-    if (track.kind === "video" && encodings) {
-      options = Object.assign(options, {
-        sendEncodings: encodings,
+    if (track.kind === "video" && options?.encodings) {
+      transceiverOptions = Object.assign(transceiverOptions, {
+        sendEncodings: options.encodings,
       });
     }
-    const transceiver = this._peerConnection.addTransceiver(track, options);
+    const transceiver = this._peerConnection.addTransceiver(
+      track,
+      transceiverOptions,
+    );
+
+    if (track.kind === "video" && options?.preferredCodec) {
+      const codecs = RTCRtpSender.getCapabilities("video")?.codecs;
+      if (codecs) {
+        const mimeType = `video/${options.preferredCodec}`;
+        const preffered = codecs.filter((c) => c.mimeType === mimeType);
+        const others = codecs.filter((c) => c.mimeType !== mimeType);
+        transceiver.setCodecPreferences([...preffered, ...others]);
+      }
+    }
 
     const init = await this._peerConnection.createOffer(offerOptions);
     const offer = adjustExtmap(init);
