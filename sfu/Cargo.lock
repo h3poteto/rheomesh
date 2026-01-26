@@ -2622,9 +2622,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-actix-web"
-version = "0.7.19"
+version = "0.7.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5360edd490ec8dee9fedfc6a9fd83ac2f01b3e1996e3261b9ad18a61971fe064"
+checksum = "1ca6b15407f9bfcb35f82d0e79e603e1629ece4e91cc6d9e58f890c184dd20af"
 dependencies = [
  "actix-web",
  "mutually_exclusive_features",
