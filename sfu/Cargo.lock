@@ -2136,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "rheomesh"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "actix",
  "actix-cors",
