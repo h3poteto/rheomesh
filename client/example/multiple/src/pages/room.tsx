@@ -24,8 +24,6 @@ export default function Room() {
   const [localVideo, setLocalVideo] = useState<MediaStream>();
   const [localAudio, setLocalAudio] = useState<MediaStream>();
   const [subscriberIds, setSubscriberIds] = useState<Array<string>>([]);
-  const [sid, setSid] = useState<number>(2);
-  const [tid, setTid] = useState<number>(2);
 
   const ws = useRef<WebSocket | null>(null);
   const sendingVideoRef = useRef<HTMLVideoElement>(null);
@@ -183,10 +181,9 @@ export default function Room() {
 
   const publish = async (stream: MediaStream) => {
     stream.getTracks().forEach(async (track) => {
-      const publisher = await publishTransport.current!.publish(
-        track,
-        simulcastEncodings(),
-      );
+      const publisher = await publishTransport.current!.publish(track, {
+        encodings: simulcastEncodings(),
+      });
       ws.current!.send(
         JSON.stringify({
           action: "Offer",
@@ -262,27 +259,21 @@ export default function Room() {
     setConnected(false);
   };
 
-  const setPrefferedLayer = (sid: number, tid: number) => {
+  const setPrefferedLayer = (sid: number) => {
     subscriberIds.forEach((id) => {
       ws.current!.send(
         JSON.stringify({
           action: "SetPreferredLayer",
           subscriberId: id,
           sid: sid,
-          tid: tid,
+          tid: 0,
         }),
       );
     });
   };
 
-  const updateSid = (sid: number) => {
-    setSid(sid);
-    setPrefferedLayer(sid, tid);
-  };
-
-  const updateTid = (tid: number) => {
-    setTid(tid);
-    setPrefferedLayer(sid, tid);
+  const updateRID = (rid: number) => {
+    setPrefferedLayer(rid);
   };
 
   return (
@@ -306,16 +297,6 @@ export default function Room() {
         >
           Mic
         </button>
-        <select onChange={(e) => updateSid(parseInt(e.target.value))}>
-          <option value="2">High</option>
-          <option value="1">Middle</option>
-          <option value="0">Low</option>
-        </select>
-        <select onChange={(e) => updateTid(parseInt(e.target.value))}>
-          <option value="2">2</option>
-          <option value="1">1</option>
-          <option value="0">0</option>
-        </select>
         <button id="restart" onClick={restart}>
           RestartICE
         </button>
@@ -332,6 +313,14 @@ export default function Room() {
         width={480}
       ></video>
       <h3>Receving</h3>
+      <div>
+        RID:
+        <select onChange={(e) => updateRID(parseInt(e.target.value))}>
+          <option value="2">High</option>
+          <option value="1">Middle</option>
+          <option value="0">Low</option>
+        </select>
+      </div>
       {Object.keys(recevingVideo).map((key) => (
         <div key={key}>
           {recevingVideo[key] && (

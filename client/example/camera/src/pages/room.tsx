@@ -185,10 +185,10 @@ export default function Room() {
 
   const publish = async (stream: MediaStream) => {
     stream.getTracks().forEach(async (track) => {
-      const publisher = await publishTransport.current!.publish(
-        track,
-        SVCEncodings(),
-      );
+      const publisher = await publishTransport.current!.publish(track, {
+        encodings: SVCEncodings(),
+        preferredCodec: "AV1",
+      });
       ws.current!.send(
         JSON.stringify({
           action: "Offer",
@@ -308,16 +308,6 @@ export default function Room() {
         >
           Mic
         </button>
-        <select onChange={(e) => updateSid(parseInt(e.target.value))}>
-          <option value="2">High</option>
-          <option value="1">Middle</option>
-          <option value="0">Low</option>
-        </select>
-        <select onChange={(e) => updateTid(parseInt(e.target.value))}>
-          <option value="2">2</option>
-          <option value="1">1</option>
-          <option value="0">0</option>
-        </select>
         <button id="stop" onClick={stop} disabled={!connected}>
           Stop
         </button>
@@ -363,6 +353,22 @@ export default function Room() {
         </div>
       )}
       <h3>Receving</h3>
+      <div>
+        Spatial Layer:
+        <select onChange={(e) => updateSid(parseInt(e.target.value))}>
+          <option value="2">2</option>
+          <option value="1">1</option>
+          <option value="0">0</option>
+        </select>
+      </div>
+      <div>
+        Temporal Layer:
+        <select onChange={(e) => updateTid(parseInt(e.target.value))}>
+          <option value="2">2</option>
+          <option value="1">1</option>
+          <option value="0">0</option>
+        </select>
+      </div>
       {Object.keys(recevingVideo).map((key) => (
         <div key={key}>
           {recevingVideo[key] && (

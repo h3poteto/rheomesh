@@ -1,20 +1,20 @@
 use std::sync::{
-    atomic::{AtomicU16, AtomicU32, AtomicU8, Ordering},
     Arc,
+    atomic::{AtomicU8, AtomicU16, AtomicU32, Ordering},
 };
 
 use enclose::enc;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 use webrtc::{
     rtcp::{
         self,
-        header::{PacketType, FORMAT_PLI},
+        header::{FORMAT_PLI, PacketType},
         payload_feedbacks::picture_loss_indication::PictureLossIndication,
     },
     rtp,
     rtp_transceiver::rtp_sender::RTCRtpSender,
-    track::track_local::{track_local_static_rtp::TrackLocalStaticRTP, TrackLocalWriter},
+    track::track_local::{TrackLocalWriter, track_local_static_rtp::TrackLocalStaticRTP},
 };
 
 use crate::{
@@ -280,7 +280,7 @@ impl Subscriber {
         loop_lock: Arc<Mutex<bool>>,
         init_sequence: Arc<AtomicU16>,
         init_timestamp: Arc<AtomicU32>,
-        _spatial_layer: Arc<AtomicU8>,
+        spatial_layer: Arc<AtomicU8>,
         temporal_layer: Arc<AtomicU8>,
     ) {
         let mut _gurad = loop_lock.lock().await;
@@ -298,6 +298,8 @@ impl Subscriber {
         let mut current_timestamp = init_timestamp.load(Ordering::Relaxed);
         let mut last_sequence_number: u16 = init_sequence.load(Ordering::Relaxed);
 
+        let mut pending_packet: Option<rtp::packet::Packet> = None;
+
         loop {
             tokio::select! {
                 _ = track_replaced.recv() => {
@@ -310,15 +312,29 @@ impl Subscriber {
                     match res {
                         Ok((mut packet, layer)) => {
                             let tid = temporal_layer.load(Ordering::Relaxed);
-                            if layer.temporal_id > tid {
+                            let sid = spatial_layer.load(Ordering::Relaxed);
+
+                            if layer.temporal_id > tid || layer.spatial_id > sid {
+                                // In SVC, RTP marker bit that indicates end of frame is only set on the last packet of the highest spatial layer.
+                                // When we filter out higher layers, we also drop the packet with marker=true.
+                                // As a result, the decoder cannot detect frame boundaries correctly.
+                                // To fix this, we buffer one packet and set marker=true on the last packet of the target spatial layer when dropping a packet that has marker=true.
+                                if packet.header.marker {
+                                    if let Some(mut pending) = pending_packet.take() {
+                                        pending.header.marker = true;
+                                        if let Err(err) = track_local.write_rtp(&pending).await {
+                                            tracing::error!("Subscriber id={} failed to write rtp: {}", id, err)
+                                        }
+                                    }
+                                }
                                 continue
                             }
-                            // When you specify sid = 0, it is not working. You can't decode video.
-                            // We need to investigate, but for now, I disabled this feature.
-                            // let sid = spatial_layer.load(Ordering::Relaxed);
-                            // if layer.spatial_id > sid {
-                            //     continue
-                            // }
+
+                            if let Some(pending) = pending_packet.take() {
+                                if let Err(err) = track_local.write_rtp(&pending).await {
+                                    tracing::error!("Subscriber id={} failed to write rtp: {}", id, err)
+                                }
+                            }
 
                             current_timestamp += packet.header.timestamp;
                             packet.header.timestamp = current_timestamp;
@@ -333,10 +349,7 @@ impl Subscriber {
                                 packet.header.timestamp
                             );
 
-
-                            if let Err(err) = track_local.write_rtp(&packet).await {
-                                tracing::error!("Subscriber id={} failed to write rtp: {}", id, err)
-                            }
+                            pending_packet = Some(packet);
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             break;
@@ -347,6 +360,10 @@ impl Subscriber {
                     }
                 }
             }
+        }
+
+        if let Some(pending) = pending_packet.take() {
+            let _ = track_local.write_rtp(&pending).await;
         }
 
         init_sequence.store(last_sequence_number, Ordering::Relaxed);
