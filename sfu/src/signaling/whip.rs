@@ -114,7 +114,7 @@ where
             .body(sdp_answer.sdp))
     }
 
-    /// PATCH /whip/session_id - For tricle ICE
+    /// PATCH /whip/session_id - For trickle ICE
     async fn handle_tricle_ice(
         &self,
         session_id: web::Path<String>,

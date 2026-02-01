@@ -11,9 +11,11 @@ This SDK supports following features.
 - [x] Video and Audio streaming
 - [x] Data channels
 - [x] Simulcast
-- [ ] Scalable Video Coding (SVC)
+- [x] Scalable Video Coding ([SVC](https://www.w3.org/TR/webrtc-svc/))
 - [x] Relay
 - [x] Recording
+- [x] WebRTC-HTTP Ingestion Protocol ([WHIP](https://www.ietf.org/archive/id/draft-ietf-wish-whip-09.html))
+- [ ] WebRTC-HTTP Egress Protocol ([WHEP](https://www.ietf.org/archive/id/draft-murillo-whep-03.html))
 
 ## Who is this for
 
