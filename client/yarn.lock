@@ -4666,7 +4666,7 @@ __metadata:
     jest: "npm:^30.0.0"
     jest-environment-jsdom: "npm:^30.0.0"
     jest-worker: "npm:^30.0.0"
-    sdp-transform: "npm:^2.15.0"
+    sdp-transform: "npm:^3.0.0"
     ts-jest: "npm:^29.2.5"
     typescript: "npm:^5.6.3"
   languageName: unknown
@@ -4794,12 +4794,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sdp-transform@npm:^2.15.0":
-  version: 2.15.0
-  resolution: "sdp-transform@npm:2.15.0"
+"sdp-transform@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "sdp-transform@npm:3.0.0"
   bin:
     sdp-verify: checker.js
-  checksum: 10c0/96c060f113a3d5418defa168db609f7e23e5bd7954fa1cf7784f103dbe702e24d667e5310d2ac6d88abdb32322af83d6ebd0df08e07f4f172d5ed5888f921386
+  checksum: 10c0/828a4595041ba64c86b29075aa4007ab384519b1fa29882db59ccb83b54b2b2a33b60848293f8da537fe151c52f5844fc17c8325396cac309fb19e2e81ec5bf4
   languageName: node
   linkType: hard
 
