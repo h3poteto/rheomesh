@@ -38,7 +38,7 @@ webrtc = "0.14.0"
 webrtc-ice = "0.14.0"
 webrtc-sdp = "0.3.13"
 webrtc-srtp = "0.16.0"
-webrtc-util = "0.12.0"
+webrtc-util = "0.17.0"
 actix-web = { version = "4.9", optional = true }
 async-trait = "0.1.89"
 nom = "8.0.0"
