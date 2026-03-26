@@ -44,7 +44,7 @@ async-trait = "0.1.89"
 nom = "8.0.0"
 
 [dev-dependencies]
-redis = { version = "0.32", features = ["aio", "tokio-comp"] }
+redis = { version = "1.0", features = ["aio", "tokio-comp"] }
 actix = "0.13"
 actix-web = "4.9"
 actix-web-actors = "4.3"
