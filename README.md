@@ -24,3 +24,5 @@ Please check https://h3poteto.github.io/rheomesh/
 
 # License
 The software is available as open source under the terms of the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+Copyright (C) 2025 h3poteto
