@@ -39,6 +39,7 @@ use webrtc::{
 #[derivative(Debug)]
 pub struct PublishTransport {
     pub id: String,
+    pub transport_config: WebRTCTransportConfig,
     peer_connection: Arc<RTCPeerConnection>,
     pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
     published_channel: Arc<replay_channel::ReplayChannel<Arc<Mutex<Publisher>>>>,
@@ -77,12 +78,14 @@ impl PublishTransport {
             replay_channel::ReplayChannel::<Arc<Mutex<Publisher>>>::new(65535);
         let (data_published_sender, data_published_receiver) = broadcast::channel(1024);
 
-        let peer_connection = Self::generate_peer_connection(media_config, transport_config)
-            .await
-            .unwrap();
+        let peer_connection =
+            Self::generate_peer_connection(media_config, transport_config.clone())
+                .await
+                .unwrap();
 
         let mut transport = Self {
             id,
+            transport_config,
             peer_connection: Arc::new(peer_connection),
             router_event_sender,
             published_channel: Arc::new(published_channel),

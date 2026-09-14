@@ -98,7 +98,7 @@ where
                 )
             })?;
 
-        //Parse SDP offer from body
+        // Parse SDP offer from body
         let sdp_string = String::from_utf8(body.to_vec()).map_err(|e| {
             Error::new_whip_sdp(e.to_string(), WhipSdpErrorKind::InvalidStringError)
         })?;
@@ -107,11 +107,29 @@ where
 
         let etag = self.etag_store.increment(&session_id).await;
 
-        Ok(HttpResponse::Created()
+        // STUN/TURN servers
+        let ice_servers = publish_transport
+            .transport_config
+            .configuration
+            .ice_servers
+            .clone();
+
+        let mut response = HttpResponse::Created();
+        response
             .content_type("application/sdp")
             .insert_header(("Location", format!("/whip/{}", session_id)))
-            .insert_header(("ETag", etag))
-            .body(sdp_answer.sdp))
+            .insert_header(("ETag", etag));
+
+        for ice in ice_servers {
+            let username = ice.username;
+            let credential = ice.credential;
+            for url in ice.urls {
+                // TODO: Check the value before embbed username and credential.
+                response.insert_header(("Link", url));
+            }
+        }
+
+        Ok(response.body(sdp_answer.sdp))
     }
 
     /// PATCH /whip/session_id - For trickle ICE
