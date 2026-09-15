@@ -1704,9 +1704,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.21"
+version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
+checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "matchers"
@@ -1938,11 +1938,11 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openport"
-version = "0.1.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "365c699f76305b3e62588961a288be10f0819ef1391f25870a69b35a213577cc"
+checksum = "5171c025cd260fb9f7af2d5e60cd7dd4b1d22c3c245f054f84fa62d5a8ba4c35"
 dependencies = [
- "rand 0.8.5",
+ "switchy_random",
 ]
 
 [[package]]
@@ -2863,6 +2863,16 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "switchy_random"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a345fa201f9370da696e98f81ba4e9da17f052d49a90827e87e2fdc0b8e0a88a"
+dependencies = [
+ "log",
+ "rand 0.8.5",
+]
 
 [[package]]
 name = "syn"
