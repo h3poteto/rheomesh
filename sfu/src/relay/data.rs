@@ -1,17 +1,16 @@
 use bincode::{Decode, Encode};
 use bytes::{Bytes, BytesMut};
 
-use serde::{Deserialize, Serialize};
-use webrtc::{
-    data_channel::data_channel_message::DataChannelMessage,
+use rtc::{
     rtp,
     rtp_transceiver::{
-        PayloadType, RTCPFeedback,
-        rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters},
+        PayloadType,
+        rtp_sender::{RTCPFeedback, RTCRtpCodec, RTCRtpCodecParameters},
     },
-    util::marshal::Marshal,
+    shared::marshal::{Marshal, Unmarshal},
 };
-use webrtc_util::Unmarshal;
+use serde::{Deserialize, Serialize};
+use webrtc::data_channel::RTCDataChannelMessage;
 
 use crate::{error::Error, publisher::PublisherType, rtp::layer::Layer};
 
@@ -32,13 +31,12 @@ pub(crate) struct TrackData {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct RTCRtpCodecParametersSerializable {
-    capability: RTCRtpCodecCapabilitySerializable,
+    codec: RTCRtpCodecSerializable,
     payload_type: PayloadType,
-    stats_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub(crate) struct RTCRtpCodecCapabilitySerializable {
+pub(crate) struct RTCRtpCodecSerializable {
     mime_type: String,
     clock_rate: u32,
     channels: u16,
@@ -73,9 +71,8 @@ impl From<RTCPFeedbackSerializable> for RTCPFeedback {
 impl From<RTCRtpCodecParameters> for RTCRtpCodecParametersSerializable {
     fn from(value: RTCRtpCodecParameters) -> Self {
         Self {
-            capability: value.capability.into(),
+            codec: value.rtp_codec.into(),
             payload_type: value.payload_type,
-            stats_id: value.stats_id,
         }
     }
 }
@@ -83,15 +80,14 @@ impl From<RTCRtpCodecParameters> for RTCRtpCodecParametersSerializable {
 impl From<RTCRtpCodecParametersSerializable> for RTCRtpCodecParameters {
     fn from(value: RTCRtpCodecParametersSerializable) -> Self {
         Self {
-            capability: value.capability.into(),
+            rtp_codec: value.codec.into(),
             payload_type: value.payload_type,
-            stats_id: value.stats_id,
         }
     }
 }
 
-impl From<RTCRtpCodecCapability> for RTCRtpCodecCapabilitySerializable {
-    fn from(value: RTCRtpCodecCapability) -> Self {
+impl From<RTCRtpCodec> for RTCRtpCodecSerializable {
+    fn from(value: RTCRtpCodec) -> Self {
         Self {
             mime_type: value.mime_type,
             clock_rate: value.clock_rate,
@@ -102,8 +98,8 @@ impl From<RTCRtpCodecCapability> for RTCRtpCodecCapabilitySerializable {
     }
 }
 
-impl From<RTCRtpCodecCapabilitySerializable> for RTCRtpCodecCapability {
-    fn from(value: RTCRtpCodecCapabilitySerializable) -> Self {
+impl From<RTCRtpCodecSerializable> for RTCRtpCodec {
+    fn from(value: RTCRtpCodecSerializable) -> Self {
         Self {
             mime_type: value.mime_type,
             clock_rate: value.clock_rate,
@@ -187,7 +183,7 @@ impl PacketData {
 
 #[derive(Debug, Clone)]
 pub(crate) struct MessageData {
-    pub message: DataChannelMessage,
+    pub message: RTCDataChannelMessage,
     pub data_publisher_id: String,
 }
 
@@ -218,10 +214,10 @@ impl MessageData {
         let data_publisher_id = String::from_utf8(id_bytes.to_vec()).unwrap();
 
         let is_string = bytes[1 + data_publisher_id_len] != 0;
-        let data = bytes.slice(1 + data_publisher_id_len + 1..len);
+        let data = BytesMut::from(bytes.slice(1 + data_publisher_id_len + 1..len));
 
         Ok(MessageData {
-            message: DataChannelMessage { is_string, data },
+            message: RTCDataChannelMessage { is_string, data },
             data_publisher_id,
         })
     }
@@ -277,9 +273,9 @@ mod test {
 
     #[test]
     fn test_message_data() {
-        let original_message = DataChannelMessage {
+        let original_message = RTCDataChannelMessage {
             is_string: true,
-            data: Bytes::from("Hello, World!"),
+            data: BytesMut::from("Hello, World!"),
         };
         let original_data_publisher_id = "publisher-123".to_string();
 

@@ -1,16 +1,24 @@
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, atomic::AtomicU8};
 use std::time::Duration;
 
+use derivative::Derivative;
 use enclose::enc;
-use rtp::packetizer::Depacketizer;
-use tokio::sync::{broadcast, mpsc};
-use webrtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
-use webrtc::rtp::{self};
-use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
-use webrtc::{
-    rtp_transceiver::{RTCRtpTransceiver, rtp_receiver::RTCRtpReceiver},
-    track::track_remote::TrackRemote,
+use rtc::{
+    media_stream::MediaStreamId,
+    rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication,
+    rtp,
+    rtp_transceiver::{
+        PayloadType,
+        rtp_sender::{RTCRtpCodec, RTCRtpCodecParameters},
+    },
 };
+use rtp::packetizer::Depacketizer;
+use tokio::sync::{
+    broadcast,
+    mpsc::{self},
+};
+use webrtc::media_stream::track_remote::TrackRemote;
 
 use crate::publisher::PublisherEvent;
 use crate::rtp::dependency_descriptor::DependencyDescriptorParser;
@@ -18,51 +26,64 @@ use crate::rtp::layer::Layer;
 use crate::track::Track;
 use crate::transport;
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct LocalTrack {
     /// The ID is the same as published track_id.
     id: String,
     ssrc: u32,
     rid: String,
-    track: Arc<TrackRemote>,
-    _rtp_receiver: Arc<RTCRtpReceiver>,
-    _rtp_transceiver: Arc<RTCRtpTransceiver>,
+    codec: Option<RTCRtpCodec>,
+    payload_type: Arc<AtomicU8>,
+    stream_id: MediaStreamId,
     rtcp_sender: Arc<transport::RtcpSender>,
     closed_sender: broadcast::Sender<bool>,
     rtp_packet_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
+    rtp_input_sender: mpsc::UnboundedSender<rtp::packet::Packet>,
 }
 
 impl LocalTrack {
-    pub(crate) fn new(
-        track: Arc<TrackRemote>,
-        rtp_receiver: Arc<RTCRtpReceiver>,
-        rtp_transceiver: Arc<RTCRtpTransceiver>,
-        rtcp_sender: Arc<transport::RtcpSender>,
+    pub(crate) async fn new(
+        track_id: String,
+        ssrc: u32,
+        rid: String,
+        track: Arc<dyn TrackRemote>,
         publisher_sender: mpsc::UnboundedSender<PublisherEvent>,
     ) -> Self {
-        let track_id = track.id();
-        let ssrc = track.ssrc();
-        let rid = track.rid().to_string();
+        let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
+        let rtcp_sender = Arc::new(rtcp_sender);
 
         let (sender, _reader) = broadcast::channel::<(rtp::packet::Packet, Layer)>(1024);
         let (tx, _rx) = broadcast::channel::<bool>(10);
 
+        let (rtp_input_sender, rtp_input_receiver) = mpsc::unbounded_channel();
+
+        let payload_type = Arc::new(AtomicU8::new(0));
+
         {
             let track_id = track_id.clone();
             let closed_sender = tx.clone();
-            tokio::spawn(enc!((sender, track) async move {
-                Self::rtp_event_loop(track_id, ssrc.clone(), sender, track, closed_sender).await;
+            let mime_type = track.codec(ssrc).await.unwrap_or_default().mime_type;
+            tokio::spawn(enc!((sender, payload_type) async move {
+                Self::rtp_event_loop(track_id, ssrc.clone(), mime_type, rtp_input_receiver, sender, closed_sender, payload_type).await;
                 let _ = publisher_sender.send(PublisherEvent::TrackRemoved(ssrc));
             }));
         }
 
         {
             let closed_sender = tx.clone();
-            let rtcp_sender = rtcp_sender.clone();
             let rid = rid.clone();
-            tokio::spawn(async move {
-                Self::pli_send_loop(rtcp_sender, ssrc, &rid, closed_sender).await;
-            });
+            tokio::spawn(enc!((track) async move {
+                Self::pli_send_loop(track, ssrc, &rid, closed_sender).await;
+            }));
+        }
+
+        {
+            let tx = tx.clone();
+            tokio::spawn(enc!((track) async move {
+                let closed = tx.subscribe();
+                Self::rtcp_writer_loop(track, rtcp_receiver, closed).await;
+            }));
         }
 
         tracing::debug!("LocalTrack id={} ssrc={} is created", track_id, ssrc);
@@ -71,12 +92,13 @@ impl LocalTrack {
             id: track_id,
             ssrc,
             rid,
-            track,
-            _rtp_receiver: rtp_receiver,
-            _rtp_transceiver: rtp_transceiver,
+            codec: track.codec(ssrc).await,
+            payload_type,
+            stream_id: track.stream_id().await,
             rtcp_sender,
             closed_sender: tx,
             rtp_packet_sender: sender,
+            rtp_input_sender,
         };
 
         local_track
@@ -85,16 +107,17 @@ impl LocalTrack {
     async fn rtp_event_loop(
         track_id: String,
         ssrc: u32,
+        mime_type: String,
+        mut rtp_input_receiver: mpsc::UnboundedReceiver<rtp::packet::Packet>,
         rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
-        track: Arc<TrackRemote>,
         closed_sender: broadcast::Sender<bool>,
+        pt: Arc<AtomicU8>,
     ) {
         tracing::debug!(
-            "LocalTrack id={} ssrc={} RTP event loop has started, payload_type={}, mime_type={}",
+            "LocalTrack id={} ssrc={} RTP event loop has started, mime_type={}",
             track_id,
             ssrc,
-            track.payload_type(),
-            track.codec().capability.mime_type
+            mime_type,
         );
         let mut local_track_closed = closed_sender.subscribe();
         drop(closed_sender);
@@ -107,16 +130,17 @@ impl LocalTrack {
                 _closed = local_track_closed.recv() => {
                     break;
                 }
-                res = track.read_rtp() => {
-                    match res {
-                        Ok((mut rtp, _attr)) => {
+                packet = rtp_input_receiver.recv() => {
+                    match packet {
+                        Some(mut rtp) => {
                             let mut layer = Layer::new();
                             let payload_type = rtp.header.payload_type;
+                            pt.store(payload_type, Ordering::Relaxed);
                             match payload_type {
                                 96 => {
                                     // VP8 is 96.
                                     // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L183
-                                    let mut depacketizer = rtp::codecs::vp8::Vp8Packet::default();
+                                    let mut depacketizer = rtp::codec::vp8::Vp8Packet::default();
                                     if let Ok(_payload) = depacketizer.depacketize(&rtp.payload) {
                                         layer.temporal_id = depacketizer.tid;
                                     }
@@ -125,7 +149,7 @@ impl LocalTrack {
                                     // VP9 is 98 or 100.
                                     // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L194
                                     // https://github.com/webrtc-rs/webrtc/blob/b0630f4627c5722361b674b8b9f48ff509ea2113/webrtc/src/api/media_engine/mod.rs#L205
-                                    let mut depacketizer = rtp::codecs::vp9::Vp9Packet::default();
+                                    let mut depacketizer = rtp::codec::vp9::Vp9Packet::default();
                                     if let Ok(_payload) = depacketizer.depacketize(&rtp.payload) {
                                         layer.temporal_id = depacketizer.tid;
                                         layer.spatial_id = depacketizer.sid;
@@ -175,19 +199,7 @@ impl LocalTrack {
                                 }
                             }
                         }
-                        Err(webrtc::error::Error::ErrDataChannelNotOpen) => {
-                            break;
-                        }
-                        Err(webrtc::error::Error::ErrClosedPipe) =>{
-                            break;
-                        }
-                        Err(webrtc::error::Error::Interceptor(webrtc::interceptor::Error::Srtp(webrtc_srtp::Error::Util(webrtc_util::Error::ErrBufferClosed)))) => {
-                            break;
-                        }
-                        Err(err) => {
-                            tracing::error!("LocalTrack id={} ssrc={} failed to read rtp: {:#?}", track_id, ssrc, err);
-                            break;
-                        }
+                        None => break
                     }
                 }
             }
@@ -201,7 +213,7 @@ impl LocalTrack {
     }
 
     async fn pli_send_loop(
-        rtcp_sender: Arc<transport::RtcpSender>,
+        track: Arc<dyn TrackRemote>,
         media_ssrc: u32,
         rid: &str,
         closed_sender: broadcast::Sender<bool>,
@@ -223,10 +235,11 @@ impl LocalTrack {
                     break;
                 }
                 _ = timeout.as_mut() => {
-                    match rtcp_sender.send(Box::new(PictureLossIndication {
+                    let pli = Box::new(PictureLossIndication {
                         sender_ssrc: 0,
                         media_ssrc,
-                    })) {
+                    });
+                    match track.write_rtcp(vec![pli]).await {
                         Ok(_) => tracing::trace!("sent rtcp pli ssrc={}, rid={}", media_ssrc, rid),
                         Err(err) => tracing::error!("LocalTrack failed to send rtcp pli ssrc={}, rid={}, {}", media_ssrc, rid, err)
                     }
@@ -240,6 +253,27 @@ impl LocalTrack {
             rid
         );
     }
+
+    async fn rtcp_writer_loop(
+        track: Arc<dyn TrackRemote>,
+        mut rtcp_receiver: transport::RtcpReceiver,
+        mut closed: broadcast::Receiver<bool>,
+    ) {
+        loop {
+            tokio::select! {
+                Some(packet) = rtcp_receiver.recv() => {
+                    if let Err(err) = track.write_rtcp(vec![packet]).await {
+                        tracing::error!("Error writing RTCP: {}", err);
+                    }
+                },
+                _ = closed.recv() => break,
+            }
+        }
+    }
+
+    pub(crate) fn rtp_input_sender(&self) -> mpsc::UnboundedSender<rtp::packet::Packet> {
+        self.rtp_input_sender.clone()
+    }
 }
 
 impl Track for LocalTrack {
@@ -252,31 +286,34 @@ impl Track for LocalTrack {
     }
 
     fn mime_type(&self) -> String {
-        self.track.codec().capability.mime_type.clone()
+        self.codec.clone().unwrap_or_default().mime_type.clone()
     }
 
-    fn payload_type(&self) -> webrtc::rtp_transceiver::PayloadType {
-        self.track.payload_type().into()
+    fn payload_type(&self) -> PayloadType {
+        self.payload_type.load(Ordering::Relaxed)
     }
 
     fn parameters(&self) -> RTCRtpCodecParameters {
-        self.track.codec().clone()
+        RTCRtpCodecParameters {
+            rtp_codec: self.codec.clone().unwrap_or_default(),
+            payload_type: self.payload_type(),
+        }
     }
 
-    fn capability(&self) -> webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability {
-        self.track.codec().capability
+    fn capability(&self) -> RTCRtpCodec {
+        self.codec.clone().unwrap_or_default()
     }
 
     fn id(&self) -> String {
-        self.track.id()
+        self.id.clone()
     }
 
-    fn stream_id(&self) -> String {
-        self.track.stream_id()
+    fn stream_id(&self) -> MediaStreamId {
+        self.stream_id.clone()
     }
 
     fn ssrc(&self) -> u32 {
-        self.track.ssrc()
+        self.ssrc.clone()
     }
 
     fn rid(&self) -> String {

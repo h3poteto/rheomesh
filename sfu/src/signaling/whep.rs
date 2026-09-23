@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::{HttpRequest, HttpResponse, web};
 use async_trait::async_trait;
 use tokio::sync::mpsc::UnboundedSender;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::peer_connection::RTCSessionDescription;
 
 use super::{etag::ETagStore, parser::parse_candidates};
 use crate::{

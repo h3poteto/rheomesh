@@ -1,4 +1,4 @@
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::peer_connection::RTCIceCandidateInit;
 
 pub fn parse_ice_ufrag(input: &str) -> Option<&str> {
     input
@@ -49,6 +49,7 @@ pub fn parse_candidates(input: &str) -> Vec<RTCIceCandidateInit> {
                     sdp_mid: Some(mid.clone()),
                     sdp_mline_index: None,
                     username_fragment: ice_ufrag.map(|s| s.to_string()),
+                    url: None,
                 };
                 ice_candidates.push(candidate);
             }

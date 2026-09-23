@@ -1,14 +1,20 @@
-use std::{collections::HashMap, fmt::Debug, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::Duration,
+};
 
 use derivative::Derivative;
 use local_ip_address::local_ip;
-use webrtc::{
-    api::setting_engine::SettingEngine, peer_connection::configuration::RTCConfiguration,
-    rtp_transceiver::rtp_codec::RTCRtpCodecParameters, sdp::extmap,
+use rtc::{
+    ice::network_type::NetworkType, rtp_transceiver::rtp_sender::RTCRtpCodecParameters, sdp::extmap,
 };
-use webrtc_ice::{
-    network_type::NetworkType,
-    udp_network::{EphemeralUDP, UDPNetwork},
+use webrtc::{peer_connection::RTCConfiguration, peer_connection::SettingEngine};
+
+use crate::{
+    error::{self, Error},
+    utils::ports::find_unused_port,
 };
 
 const EXT_TOFFSET: &str = "urn:ietf:params:rtp-hdrext:toffset";
@@ -51,9 +57,7 @@ pub struct WebRTCTransportConfig {
 impl Default for WebRTCTransportConfig {
     fn default() -> Self {
         Self {
-            configuration: RTCConfiguration {
-                ..Default::default()
-            },
+            configuration: RTCConfiguration::default(),
             announced_ips: vec![],
             ice_disconnected_timeout: None,
             ice_failed_timeout: None,
@@ -67,10 +71,6 @@ impl Default for WebRTCTransportConfig {
 }
 
 impl WebRTCTransportConfig {
-    pub fn configuration(&self) -> RTCConfiguration {
-        self.configuration.clone()
-    }
-
     pub(crate) fn setting_engine(&self) -> SettingEngine {
         let mut setting_engine = SettingEngine::default();
 
@@ -85,14 +85,6 @@ impl WebRTCTransportConfig {
             );
         }
 
-        if self.announced_ips.len() > 0 {
-            let announced_ips = Arc::new(self.announced_ips.clone());
-            setting_engine.set_ip_filter(Box::new({
-                let announced_ips = Arc::clone(&announced_ips);
-                move |ip| announced_ips.contains(&ip)
-            }));
-        }
-
         if self.network_types.len() > 0 {
             setting_engine.set_network_types(self.network_types.clone());
         }
@@ -103,15 +95,30 @@ impl WebRTCTransportConfig {
             setting_engine.set_ice_credentials(username, password);
         }
 
-        if let Some(port_range) = &self.port_range {
-            let ephemeral = EphemeralUDP::new(port_range.min, port_range.max)
-                .expect("failed to define ephemeral UDP");
-
-            let udp_network = UDPNetwork::Ephemeral(ephemeral);
-            setting_engine.set_udp_network(udp_network);
-        }
-
         setting_engine
+    }
+
+    pub(crate) fn udp_addrs(&self) -> Result<Vec<SocketAddr>, Error> {
+        let port: u16 = match &self.port_range {
+            Some(p) => find_unused_port(p.min, p.max).ok_or(Error::new_transport(
+                "UDP port not found".to_string(),
+                error::TransportErrorKind::PeerConnectionError,
+            ))?,
+            None => 0,
+        };
+
+        if self.announced_ips.is_empty() {
+            Ok(vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                port,
+            )])
+        } else {
+            Ok(self
+                .announced_ips
+                .iter()
+                .map(|ip| SocketAddr::new(*ip, port))
+                .collect())
+        }
     }
 }
 

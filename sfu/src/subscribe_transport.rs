@@ -1,37 +1,42 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
 use std::time::Duration;
+use std::{
+    sync::{
+        Arc, OnceLock, RwLock, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 use derivative::Derivative;
-use enclose::enc;
+use rand::random;
+use rtc::statistics::StatsSelector;
+use rtc::{
+    media_stream::MediaStreamTrack,
+    peer_connection::configuration::{RTCOfferOptions, media_engine::MIME_TYPE_OPUS},
+    rtp_transceiver::rtp_sender::{
+        RTCRtpCodec, RTCRtpCodingParameters, RTCRtpEncodingParameters, RtpCodecKind,
+    },
+};
+use tokio::sync::oneshot;
 use tokio::{
     sync::{Mutex, mpsc, watch},
     time::sleep,
 };
 use uuid::Uuid;
 use webrtc::{
-    api::media_engine::MIME_TYPE_OPUS,
-    ice_transport::{
-        ice_candidate::{RTCIceCandidate, RTCIceCandidateInit},
-        ice_gathering_state::RTCIceGatheringState,
+    media_stream::track_local::{
+        static_rtp::TrackLocalStaticRTP, static_sample::TrackLocalStaticSample,
     },
     peer_connection::{
-        RTCPeerConnection, offer_answer_options::RTCOfferOptions,
-        peer_connection_state::RTCPeerConnectionState,
-        sdp::session_description::RTCSessionDescription, signaling_state::RTCSignalingState,
-    },
-    rtp_transceiver::rtp_codec::RTCRtpCodecCapability,
-    stats,
-    track::track_local::{
-        track_local_static_rtp::TrackLocalStaticRTP,
-        track_local_static_sample::TrackLocalStaticSample,
+        PeerConnection, PeerConnectionEventHandler, RTCIceCandidateInit, RTCIceGatheringState,
+        RTCPeerConnectionIceEvent, RTCPeerConnectionState, RTCSessionDescription,
+        RTCSignalingState, RTCStatsReport,
     },
 };
 use webrtc_sdp::attribute_type::{SdpAttribute, SdpAttributeType};
 use webrtc_sdp::parse_sdp;
 
+use crate::error::SubscriberErrorKind;
 use crate::{
     config::{MediaConfig, RID, WebRTCTransportConfig, find_extmap_order},
     data_channel::Channel,
@@ -41,7 +46,7 @@ use crate::{
     router::{Router, RouterEvent},
     subscriber::Subscriber,
     track::Track,
-    transport::{OnIceCandidateFn, OnNegotiationNeededFn, PeerConnection, Transport},
+    transport::{self, OnIceCandidateFn, OnNegotiationNeededFn, Transport},
 };
 
 /// This handle [`webrtc::peer_connection::RTCPeerConnection`] methods for subscriber.
@@ -49,7 +54,8 @@ use crate::{
 #[derivative(Debug)]
 pub struct SubscribeTransport {
     pub id: String,
-    peer_connection: Arc<RTCPeerConnection>,
+    #[derivative(Debug = "ignore")]
+    peer_connection: Arc<dyn PeerConnection>,
     pending_candidates: Arc<Mutex<Vec<RTCIceCandidateInit>>>,
     pub(crate) router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     offer_options: RTCOfferOptions,
@@ -62,6 +68,8 @@ pub struct SubscribeTransport {
     closed_sender: watch::Sender<bool>,
     closed_receiver: watch::Receiver<bool>,
     signaling_pending: Arc<AtomicBool>,
+    #[derivative(Debug = "ignore")]
+    handler: Arc<SubscribeHandler>,
 }
 
 impl SubscribeTransport {
@@ -72,29 +80,49 @@ impl SubscribeTransport {
     ) -> Self {
         let id = Uuid::new_v4().to_string();
 
-        let peer_connection = Self::generate_peer_connection(media_config, transport_config)
-            .await
-            .unwrap();
-
+        let on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>> =
+            Arc::new(Mutex::new(Box::new(|_| {})));
+        let on_negotiation_needed_fn: Arc<Mutex<OnNegotiationNeededFn>> =
+            Arc::new(Mutex::new(Box::new(|_| {})));
+        let offer_options = RTCOfferOptions { ice_restart: false };
+        let signaling_pending = Arc::new(AtomicBool::new(false));
         let (closed_sender, closed_receiver) = watch::channel(false);
 
-        let mut transport = Self {
+        let handler = Arc::new(SubscribeHandler {
+            peer_connection: Arc::new(OnceLock::new()),
+            on_ice_candidate_fn: on_ice_candidate_fn.clone(),
+            on_negotiation_needed_fn: on_negotiation_needed_fn.clone(),
+            offer_options: offer_options.clone(),
+            signaling_pending: signaling_pending.clone(),
+            closed_sender: closed_sender.clone(),
+            signaling_state: Arc::new(RwLock::new(RTCSignalingState::default())),
+            ice_gathering_state: Arc::new(RwLock::new(RTCIceGatheringState::default())),
+            connection_state: Arc::new(RwLock::new(RTCPeerConnectionState::default())),
+            gathering_complete: Arc::new(std::sync::Mutex::new(None)),
+        });
+
+        let peer_connection =
+            transport::generate_peer_connection(handler.clone(), media_config, transport_config)
+                .await
+                .unwrap();
+
+        let _ = handler
+            .peer_connection
+            .set(Arc::downgrade(&peer_connection));
+
+        let transport = Self {
             id,
-            peer_connection: Arc::new(peer_connection),
+            peer_connection,
             router_event_sender,
-            offer_options: RTCOfferOptions {
-                ice_restart: false,
-                voice_activity_detection: false,
-            },
+            offer_options,
             pending_candidates: Arc::new(Mutex::new(Vec::new())),
-            on_ice_candidate_fn: Arc::new(Mutex::new(Box::new(|_| {}))),
-            on_negotiation_needed_fn: Arc::new(Mutex::new(Box::new(|_| {}))),
+            on_ice_candidate_fn,
+            on_negotiation_needed_fn,
             closed_sender,
             closed_receiver,
-            signaling_pending: Arc::new(AtomicBool::new(false)),
+            signaling_pending,
+            handler,
         };
-
-        transport.ice_state_hooks().await;
 
         tracing::debug!("SubscribeTransport {} is created", transport.id);
 
@@ -198,13 +226,13 @@ impl SubscribeTransport {
             .create_offer(Some(self.offer_options.clone()))
             .await?;
 
-        let mut gathering_complete = self.peer_connection.gathering_complete_promise().await;
+        let gathering_complete = self.handler.trap_gathering_complete();
         self.peer_connection.set_local_description(offer).await?;
-        let _ = gathering_complete.recv().await;
+        let _ = gathering_complete.await;
 
         match self.peer_connection.local_description().await {
             Some(offer) => {
-                let offer = Self::adjust_extmap(offer)?;
+                let offer = adjust_extmap(offer)?;
                 Ok(offer)
             }
             None => Err(Error::new_transport(
@@ -245,13 +273,13 @@ impl SubscribeTransport {
 
         let answer = self.peer_connection.create_answer(None).await?;
 
-        let mut gathering_complete = self.peer_connection.gathering_complete_promise().await;
+        let gathering_complete = self.handler.trap_gathering_complete();
         self.peer_connection.set_local_description(answer).await?;
-        let _ = gathering_complete.recv().await;
+        let _ = gathering_complete.await;
 
         match self.peer_connection.local_description().await {
             Some(answer) => {
-                let answer = Self::adjust_extmap(answer)?;
+                let answer = adjust_extmap(answer)?;
                 Ok(answer)
             }
             None => Err(Error::new_transport(
@@ -267,32 +295,33 @@ impl SubscribeTransport {
         local_track: Arc<dyn Track>,
     ) -> Result<Arc<Mutex<Subscriber>>, Error> {
         let publisher_rtcp_sender = local_track.rtcp_sender().clone();
-        let mime_type = local_track.mime_type();
+        let codec = local_track.capability();
 
-        let local_track_rtp = Arc::new(TrackLocalStaticRTP::new(
-            local_track.capability(),
-            local_track.id(),
-            local_track.stream_id(),
-        ));
+        let ssrc = random::<u32>();
+        let track_local_rtp = Arc::new(TrackLocalStaticRTP::new(media_stream_track(
+            &local_track,
+            ssrc,
+        )));
 
-        let rtcp_sender = self
+        let track_local_rtp_sender = self
             .peer_connection
-            .add_track(local_track_rtp.clone())
+            .add_track(track_local_rtp.clone())
             .await?;
-        let media_ssrc = local_track.ssrc();
-        let rtp_sender = local_track.rtp_packet_sender();
+        let publisher_ssrc = local_track.ssrc();
+        let rtp_packet_sender = local_track.rtp_packet_sender();
         let closed_receiver = self.closed_receiver.clone();
 
         let (subscriber, event_sender) = Subscriber::new(
             publisher_id.clone(),
-            local_track_rtp,
-            rtp_sender,
-            rtcp_sender,
+            track_local_rtp,
+            rtp_packet_sender,
             publisher_rtcp_sender,
-            mime_type,
-            media_ssrc,
+            track_local_rtp_sender,
+            codec,
+            publisher_ssrc,
             self.router_event_sender.clone(),
             closed_receiver,
+            ssrc,
         );
 
         {
@@ -338,22 +367,30 @@ impl SubscribeTransport {
     }
 
     async fn add_probe(&self) -> Result<(), Error> {
-        let codec = RTCRtpCodecCapability {
+        let codec = RTCRtpCodec {
             mime_type: MIME_TYPE_OPUS.to_owned(),
             clock_rate: 48000,
             channels: 2,
             ..Default::default()
         };
-        let dummy_track = Arc::new(TrackLocalStaticSample::new(
-            codec,
-            "probator".to_owned(),
+        let ssrc = random::<u32>();
+        let dummy_track = Arc::new(TrackLocalStaticSample::new(MediaStreamTrack::new(
             "webrtc-rs".to_owned(),
-        ));
-        {
-            let dummy_track = dummy_track.clone();
-            let _rtcp_sender = self.peer_connection.add_track(dummy_track).await?;
-        }
-        let _prober = Prober::new(dummy_track);
+            "probator".to_owned(),
+            "probator".to_owned(),
+            RtpCodecKind::Audio,
+            vec![RTCRtpEncodingParameters {
+                rtp_coding_parameters: RTCRtpCodingParameters {
+                    ssrc: Some(ssrc),
+                    ..Default::default()
+                },
+                codec,
+                active: true,
+                ..Default::default()
+            }],
+        ))?);
+        let rtp_sender = self.peer_connection.add_track(dummy_track.clone()).await?;
+        let _prober = Prober::new(dummy_track, rtp_sender, ssrc);
 
         Ok(())
     }
@@ -361,7 +398,7 @@ impl SubscribeTransport {
     /// This restarts ICE negotiation and returns a new offer sdp.
     pub async fn restart_ice(&self) -> Result<RTCSessionDescription, Error> {
         tracing::debug!("subscriber restarting ice");
-        let state = self.peer_connection.connection_state();
+        let state = self.handler.connection_state();
         if state == RTCPeerConnectionState::New || state == RTCPeerConnectionState::Closed {
             return Err(Error::new_transport(
                 format!("Connection state is not correct: {}", state),
@@ -374,13 +411,13 @@ impl SubscribeTransport {
         options.ice_restart = true;
         let offer = self.peer_connection.create_offer(Some(options)).await?;
 
-        let mut gathering_complete = self.peer_connection.gathering_complete_promise().await;
+        let gathering_complete = self.handler.trap_gathering_complete();
         self.peer_connection.set_local_description(offer).await?;
-        let _ = gathering_complete.recv().await;
+        let _ = gathering_complete.await;
 
         match self.peer_connection.local_description().await {
             Some(offer) => {
-                let offer = Self::adjust_extmap(offer)?;
+                let offer = adjust_extmap(offer)?;
                 Ok(offer)
             }
             None => Err(Error::new_transport(
@@ -388,88 +425,6 @@ impl SubscribeTransport {
                 TransportErrorKind::LocalDescriptionError,
             )),
         }
-    }
-
-    async fn ice_state_hooks(&mut self) {
-        let peer = self.peer_connection.clone();
-        let on_ice_candidate = Arc::clone(&self.on_ice_candidate_fn);
-
-        // This callback is called after initializing PeerConnection with ICE servers.
-        peer.on_ice_candidate(Box::new(move |candidate: Option<RTCIceCandidate>| {
-            Box::pin({
-                let func = on_ice_candidate.clone();
-                async move {
-                    let locked = func.lock().await;
-                    if let Some(candidate) = candidate {
-                        tracing::info!("on ice candidate: {}", candidate);
-                        // Call on_ice_candidate_fn as callback.
-                        (locked)(candidate);
-                    }
-                }
-            })
-        }));
-
-        let downgraded_peer = Arc::downgrade(&peer);
-        let on_negotiation_needed = Arc::clone(&self.on_negotiation_needed_fn);
-        let signaling_pending = self.signaling_pending.clone();
-        let offer_options = self.offer_options.clone();
-        peer.on_negotiation_needed(Box::new(enc!( (downgraded_peer, on_negotiation_needed, signaling_pending) move || {
-                Box::pin(enc!( (downgraded_peer, on_negotiation_needed, signaling_pending) async move {
-                    tracing::info!("on negotiation needed");
-                    while signaling_pending.load(Ordering::Relaxed) {
-                        sleep(Duration::from_millis(10)).await;
-                    }
-                    let locked = on_negotiation_needed.lock().await;
-                    if let Some(pc) = downgraded_peer.upgrade() {
-                        if pc.connection_state() == RTCPeerConnectionState::Closed {
-                            tracing::info!("Skip negotiation because connection state is closed");
-                            return;
-                        }
-                        if pc.signaling_state() != RTCSignalingState::Stable {
-                            tracing::info!("Skip negotiation because signaling state is {}", pc.signaling_state());
-                            return;
-                        }
-                        signaling_pending.store(true, Ordering::Relaxed);
-                        match pc.create_offer(Some(offer_options)).await {
-                            Ok(offer) => {
-                                let offer = Self::adjust_extmap(offer).expect("could not adjust sdp");
-
-                                let mut gathering_complete = pc.gathering_complete_promise().await;
-                                if let Err(err) = pc.set_local_description(offer).await {
-                                    tracing::error!("Failed to set local description: {}", err);
-                                    return;
-                                }
-                                let _ = gathering_complete.recv().await;
-
-                                let offer = pc.local_description().await.unwrap();
-
-                                tracing::info!("peer sending offer");
-                                (locked)(offer);
-                            }
-                            Err(err) => {
-                                tracing::error!("Could not create offer: {}", err);
-                                return;
-                            }
-                        }
-
-                    }
-                }))
-            })));
-
-        peer.on_ice_gathering_state_change(Box::new(move |state| {
-            Box::pin(async move {
-                tracing::debug!("ICE gathering state changed: {}", state);
-            })
-        }));
-
-        let closed_sender = self.closed_sender.clone();
-        peer.on_peer_connection_state_change(Box::new(enc!((closed_sender) move |state| {
-            Box::pin(enc!((closed_sender) async move {
-                if state == RTCPeerConnectionState::Closed || state == RTCPeerConnectionState::Failed {
-                    Self::cleanup(closed_sender);
-                }
-            }))
-        })));
     }
 
     // Hooks
@@ -495,36 +450,34 @@ impl SubscribeTransport {
         self.peer_connection.close().await?;
         Ok(())
     }
-
-    fn adjust_extmap(mut sdp: RTCSessionDescription) -> Result<RTCSessionDescription, Error> {
-        let mut session = parse_sdp(&sdp.sdp, false)?;
-
-        for media in session.media.iter_mut() {
-            let mut found_attr = vec![];
-            for attr in media.get_attributes() {
-                match attr {
-                    SdpAttribute::Extmap(extmap) => {
-                        found_attr.push(extmap.clone());
-                    }
-                    _ => continue,
-                }
-            }
-            media.remove_attribute(SdpAttributeType::Extmap);
-            for attr in found_attr {
-                if let Some(order) = find_extmap_order(&attr.url) {
-                    let mut new_attr = attr.clone();
-                    new_attr.id = order;
-                    let _ = media.add_attribute(SdpAttribute::Extmap(new_attr))?;
-                };
-            }
-        }
-        tracing::trace!("updated session: {:#?}", session);
-        sdp.sdp = session.to_string();
-        Ok(sdp)
-    }
 }
 
-impl PeerConnection for SubscribeTransport {}
+fn adjust_extmap(mut sdp: RTCSessionDescription) -> Result<RTCSessionDescription, Error> {
+    let mut session = parse_sdp(&sdp.sdp, false)?;
+
+    for media in session.media.iter_mut() {
+        let mut found_attr = vec![];
+        for attr in media.get_attributes() {
+            match attr {
+                SdpAttribute::Extmap(extmap) => {
+                    found_attr.push(extmap.clone());
+                }
+                _ => continue,
+            }
+        }
+        media.remove_attribute(SdpAttributeType::Extmap);
+        for attr in found_attr {
+            if let Some(order) = find_extmap_order(&attr.url) {
+                let mut new_attr = attr.clone();
+                new_attr.id = order;
+                let _ = media.add_attribute(SdpAttribute::Extmap(new_attr))?;
+            };
+        }
+    }
+    tracing::trace!("updated session: {:#?}", session);
+    sdp.sdp = session.to_string();
+    Ok(sdp)
+}
 
 impl Transport for SubscribeTransport {
     async fn add_ice_candidate(&self, candidate: RTCIceCandidateInit) -> Result<(), Error> {
@@ -543,19 +496,22 @@ impl Transport for SubscribeTransport {
     }
 
     fn signaling_state(&self) -> RTCSignalingState {
-        self.peer_connection.signaling_state()
+        self.handler.signaling_state()
     }
 
     fn ice_gathering_state(&self) -> RTCIceGatheringState {
-        self.peer_connection.ice_gathering_state()
+        self.handler.ice_gathering_state()
     }
 
     fn connection_state(&self) -> RTCPeerConnectionState {
-        self.peer_connection.connection_state()
+        self.handler.connection_state()
     }
 
-    async fn get_stats(&self) -> stats::StatsReport {
-        let report = self.peer_connection.get_stats().await;
+    async fn get_stats(&self) -> RTCStatsReport {
+        let report = self
+            .peer_connection
+            .get_stats(Instant::now(), StatsSelector::None)
+            .await;
         report
     }
 }
@@ -564,6 +520,165 @@ impl Drop for SubscribeTransport {
     fn drop(&mut self) {
         tracing::debug!("SubscribeTransport {} is dropped", self.id);
     }
+}
+
+#[derive(Clone)]
+struct SubscribeHandler {
+    peer_connection: Arc<OnceLock<Weak<dyn PeerConnection>>>,
+    on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>>,
+    on_negotiation_needed_fn: Arc<Mutex<OnNegotiationNeededFn>>,
+    offer_options: RTCOfferOptions,
+    signaling_pending: Arc<AtomicBool>,
+    closed_sender: watch::Sender<bool>,
+    signaling_state: Arc<RwLock<RTCSignalingState>>,
+    connection_state: Arc<RwLock<RTCPeerConnectionState>>,
+    ice_gathering_state: Arc<RwLock<RTCIceGatheringState>>,
+    gathering_complete: Arc<std::sync::Mutex<Option<oneshot::Sender<()>>>>,
+}
+
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for SubscribeHandler {
+    // This callback is called after initializing PeerConnection with ICE servers.
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        let locked = self.on_ice_candidate_fn.lock().await;
+        let candidate = event.candidate;
+        tracing::info!("on ice candidate: {}", candidate);
+        // Call on_ice_candidate_fn as callback.
+        (locked)(candidate);
+    }
+
+    async fn on_negotiation_needed(&self) {
+        tracing::info!("on negotiation needed");
+        let handler = self.clone();
+        tokio::spawn(async move {
+            handler.negotiate().await;
+        });
+    }
+
+    async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
+        tracing::debug!("ICE gathering state changed: {}", state);
+        *self.ice_gathering_state.write().unwrap() = state;
+
+        if state == RTCIceGatheringState::Complete {
+            let sender = self.gathering_complete.lock().unwrap().take();
+            if let Some(sender) = sender {
+                let _ = sender.send(());
+            }
+        }
+    }
+
+    async fn on_signaling_state_change(&self, state: RTCSignalingState) {
+        *self.signaling_state.write().unwrap() = state;
+    }
+
+    async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        *self.connection_state.write().unwrap() = state;
+        if state == RTCPeerConnectionState::Closed || state == RTCPeerConnectionState::Failed {
+            let _ = self.closed_sender.send(true);
+        }
+    }
+}
+
+impl SubscribeHandler {
+    fn signaling_state(&self) -> RTCSignalingState {
+        *self.signaling_state.read().unwrap()
+    }
+
+    fn ice_gathering_state(&self) -> RTCIceGatheringState {
+        *self.ice_gathering_state.read().unwrap()
+    }
+
+    fn connection_state(&self) -> RTCPeerConnectionState {
+        *self.connection_state.read().unwrap()
+    }
+
+    fn trap_gathering_complete(&self) -> oneshot::Receiver<()> {
+        let (tx, rx) = oneshot::channel();
+        *self.ice_gathering_state.write().unwrap() = RTCIceGatheringState::Gathering;
+        *self.gathering_complete.lock().unwrap() = Some(tx);
+        rx
+    }
+
+    async fn negotiate(&self) {
+        while self.signaling_pending.load(Ordering::Relaxed) {
+            sleep(Duration::from_millis(10)).await;
+        }
+
+        let Some(pc) = self.peer_connection.get().and_then(|weak| weak.upgrade()) else {
+            return;
+        };
+
+        let locked = self.on_negotiation_needed_fn.lock().await;
+        if self.connection_state() == RTCPeerConnectionState::Closed {
+            tracing::info!("Skip negotiation because connection state is closed");
+            return;
+        }
+        if self.signaling_state() != RTCSignalingState::Stable {
+            tracing::info!(
+                "Skip negotiation because signaling state is {}",
+                self.signaling_state()
+            );
+            return;
+        }
+        self.signaling_pending.store(true, Ordering::Relaxed);
+        match self.create_and_send_offer(&pc).await {
+            Ok(offer) => {
+                (locked)(offer);
+            }
+            Err(err) => {
+                tracing::error!("Negotiation failed: {}", err);
+                self.signaling_pending.store(false, Ordering::Relaxed);
+            }
+        }
+    }
+
+    async fn create_and_send_offer(
+        &self,
+        pc: &Arc<dyn PeerConnection>,
+    ) -> Result<RTCSessionDescription, Error> {
+        let offer = pc.create_offer(Some(self.offer_options.clone())).await?;
+        let offer = adjust_extmap(offer)?;
+
+        let gathering_complete = self.trap_gathering_complete();
+        pc.set_local_description(offer).await?;
+        let _ = gathering_complete.await;
+
+        let offer = pc.local_description().await.ok_or(Error::new_subscriber(
+            "local_description is empty".to_string(),
+            SubscriberErrorKind::NoDescriptionError,
+        ))?;
+
+        tracing::info!("peer sending offer");
+        Ok(offer)
+    }
+}
+
+fn media_stream_track(track: &Arc<dyn Track>, ssrc: u32) -> MediaStreamTrack {
+    let mime_type = track.mime_type();
+    let kind = RtpCodecKind::from(
+        mime_type
+            .split("/")
+            .next()
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str(),
+    );
+
+    MediaStreamTrack::new(
+        track.stream_id(),
+        track.id(),
+        track.id(),
+        kind,
+        vec![RTCRtpEncodingParameters {
+            rtp_coding_parameters: RTCRtpCodingParameters {
+                ssrc: Some(ssrc),
+                ..Default::default()
+            },
+            codec: track.capability(),
+            active: true,
+            ..Default::default()
+        }],
+    )
 }
 
 #[cfg(test)]
@@ -581,7 +696,7 @@ mod test {
             .expect(format!("failed to open {}", correct_sdp_path).as_str());
         let mut original_sdp = RTCSessionDescription::default();
         original_sdp.sdp = original;
-        let res = SubscribeTransport::adjust_extmap(original_sdp).expect("failed to adjust extmap");
+        let res = adjust_extmap(original_sdp).expect("failed to adjust extmap");
 
         let correct_session = parse_sdp(&correct, false).expect("failed to parse correct sdp");
         let response_session = parse_sdp(&res.sdp, false).expect("failed to parse response sdp");

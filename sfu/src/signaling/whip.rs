@@ -5,7 +5,7 @@ use actix_web::{
     web::{self},
 };
 use async_trait::async_trait;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::peer_connection::RTCSessionDescription;
 use webrtc_sdp::{attribute_type::SdpAttribute, parse_sdp};
 
 use crate::{

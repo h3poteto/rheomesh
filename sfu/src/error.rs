@@ -3,9 +3,7 @@ use std::{fmt, io};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    WebRTCError(#[from] webrtc::Error),
-    #[error(transparent)]
-    WebRTCUtilError(#[from] webrtc::util::Error),
+    WebRTCError(#[from] webrtc::error::Error),
     #[error(transparent)]
     SdpParseError(#[from] webrtc_sdp::error::SdpParserError),
     #[error(transparent)]
@@ -114,6 +112,8 @@ pub enum SubscriberErrorKind {
     TrackNotFoundError,
     #[error("data channel not found error")]
     DataChannelNotFoundError,
+    #[error("session description is empty")]
+    NoDescriptionError,
 }
 
 #[derive(Debug, thiserror::Error)]
