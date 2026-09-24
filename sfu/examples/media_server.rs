@@ -14,17 +14,18 @@ use rheomesh::recording::recording_track::RecordingTrack;
 use rheomesh::recording::recording_transport::RecordingTransport;
 use rheomesh::subscriber::Subscriber;
 use rheomesh::transport::Transport;
+use rtc::{
+    peer_connection::configuration::media_engine,
+    rtp_transceiver::rtp_sender::{RTCPFeedback, RTCRtpCodec, RTCRtpCodecParameters},
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use webrtc::api::media_engine;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::rtp_transceiver::RTCPFeedback;
-use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters};
+use webrtc::peer_connection::{
+    RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCSessionDescription,
+};
 
 mod common;
 use common::room::{Room, RoomOwner};
@@ -34,7 +35,9 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "debug".into()),
+                .unwrap_or_else(|_| "debug,rtc=info".into()),
+            // tracing_subscriber::EnvFilter::try_from_default_env()
+            //     .unwrap_or_else(|_| "debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -125,18 +128,26 @@ impl WebSocket {
             .parse::<Ipv4Addr>()
             .expect("failed to parse public IP address");
         config.announced_ips = vec![IpAddr::V4(ipv4)];
-        config.configuration.ice_servers = vec![RTCIceServer {
-            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-            ..Default::default()
-        }];
+        config.configuration = RTCConfigurationBuilder::new()
+            .with_ice_servers(vec![RTCIceServer {
+                urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+                ..Default::default()
+            }])
+            .build();
         // Port range of your server.
         config.port_range = Some(rheomesh::config::PortRange {
             min: 12000,
             max: 15000,
         });
 
-        let publish_transport = router.create_publish_transport(config.clone()).await;
-        let subscribe_transport = router.create_subscribe_transport(config).await;
+        let publish_transport = router
+            .create_publish_transport(config.clone())
+            .await
+            .expect("failed to create publish_transport");
+        let subscribe_transport = router
+            .create_subscribe_transport(config)
+            .await
+            .expect("failed to create subscribe_transport");
 
         let recording_host = env::var("RECORDING_HOST").unwrap_or("127.0.0.1".to_string());
         let recording_port = env::var("RECORDING_PORT")
@@ -559,7 +570,7 @@ enum InternalMessage {}
 fn audio_codecs() -> Vec<RTCRtpCodecParameters> {
     return vec![
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_OPUS.to_owned(),
                 clock_rate: 48000,
                 channels: 2,
@@ -570,7 +581,7 @@ fn audio_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_G722.to_owned(),
                 clock_rate: 8000,
                 channels: 0,
@@ -581,7 +592,7 @@ fn audio_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_PCMU.to_owned(),
                 clock_rate: 8000,
                 channels: 0,
@@ -592,7 +603,7 @@ fn audio_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_PCMA.to_owned(),
                 clock_rate: 8000,
                 channels: 0,
@@ -626,7 +637,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
     ];
     return vec![
         // RTCRtpCodecParameters {
-        //     capability: RTCRtpCodecCapability {
+        //     rtp_codec: RTCRtpCodec {
         //         mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
         //         clock_rate: 90000,
         //         channels: 0,
@@ -637,7 +648,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
         //     ..Default::default()
         // },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -648,7 +659,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -659,7 +670,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -672,7 +683,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -685,7 +696,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -698,7 +709,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -711,7 +722,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -724,7 +735,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_H264.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -737,7 +748,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_AV1.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -748,7 +759,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_HEVC.to_owned(),
                 clock_rate: 90000,
                 channels: 0,
@@ -759,7 +770,7 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             ..Default::default()
         },
         RTCRtpCodecParameters {
-            capability: RTCRtpCodecCapability {
+            rtp_codec: RTCRtpCodec {
                 mime_type: "video/ulpfec".to_owned(),
                 clock_rate: 90000,
                 channels: 0,

@@ -2,7 +2,7 @@ use crate::{
     config::{MediaConfig, WebRTCTransportConfig},
     data_publisher::DataPublisher,
     error::{Error, PublisherErrorKind, TransportErrorKind},
-    publisher::{Publisher, PublisherType},
+    publisher::Publisher,
     relay::sender::RelaySender,
     replay_channel,
     router::RouterEvent,
@@ -11,7 +11,6 @@ use crate::{
 use derivative::Derivative;
 use rtc::statistics::StatsSelector;
 use std::{
-    collections::HashMap,
     sync::{
         Arc, RwLock,
         atomic::{AtomicBool, Ordering},
@@ -49,7 +48,6 @@ pub struct PublishTransport {
     #[derivative(Debug = "ignore")]
     on_track_fn: Arc<Mutex<OnTrackFn>>,
     signaling_pending: Arc<AtomicBool>,
-    publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     relay_sender: Arc<RelaySender>,
     private_ip: String,
     #[derivative(Debug = "ignore")]
@@ -63,7 +61,7 @@ impl PublishTransport {
         transport_config: WebRTCTransportConfig,
         relay_sender: Arc<RelaySender>,
         private_ip: String,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let id = Uuid::new_v4().to_string();
         let (published_channel, published_receiver) =
             replay_channel::ReplayChannel::<Arc<Mutex<Publisher>>>::new(65535);
@@ -72,7 +70,6 @@ impl PublishTransport {
         let on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>> =
             Arc::new(Mutex::new(Box::new(|_| {})));
         let on_track_fn: Arc<Mutex<OnTrackFn>> = Arc::new(Mutex::new(Box::new(|_| {})));
-        let publishers = Arc::new(Mutex::new(HashMap::new()));
         let signaling_pending = Arc::new(AtomicBool::new(false));
         let published_channel = Arc::new(published_channel);
         let published_receiver = Arc::new(Mutex::new(published_receiver));
@@ -81,7 +78,6 @@ impl PublishTransport {
             router_event_sender: router_event_sender.clone(),
             on_ice_candidate_fn: on_ice_candidate_fn.clone(),
             on_track_fn: on_track_fn.clone(),
-            publishers: publishers.clone(),
             signaling_pending: signaling_pending.clone(),
             published_channel: published_channel.clone(),
             published_receiver: published_receiver.clone(),
@@ -95,8 +91,7 @@ impl PublishTransport {
 
         let peer_connection =
             transport::generate_peer_connection(handler.clone(), media_config, transport_config)
-                .await
-                .unwrap();
+                .await?;
 
         let transport = Self {
             id,
@@ -110,7 +105,6 @@ impl PublishTransport {
             on_ice_candidate_fn,
             on_track_fn,
             signaling_pending,
-            publishers,
             relay_sender,
             private_ip,
             handler,
@@ -118,7 +112,7 @@ impl PublishTransport {
 
         tracing::debug!("PublishTransport {} is created", transport.id);
 
-        transport
+        Ok(transport)
     }
 
     /// This sets the offer to the [`webrtc::peer_connection::RTCPeerConnection`] and creates answer sdp for it.
@@ -258,19 +252,9 @@ impl PublishTransport {
     }
 
     async fn cleanup(
-        publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
         published_channel: Arc<replay_channel::ReplayChannel<Arc<Mutex<Publisher>>>>,
         published_receiver: Arc<Mutex<mpsc::Receiver<Arc<Mutex<Publisher>>>>>,
     ) {
-        let mut p = publishers.lock().await;
-        let drained: Vec<_> = p.drain().collect();
-        drop(p);
-        for (id, publisher) in drained {
-            tracing::debug!("Publisher {} is closing", id);
-            publisher.lock().await.close().await;
-        }
-        tracing::debug!("Publishers are cleared");
-
         published_channel.clear().await;
 
         {
@@ -283,7 +267,6 @@ impl PublishTransport {
     pub async fn close(&self) -> Result<(), Error> {
         self.peer_connection.close().await?;
         Self::cleanup(
-            self.publishers.clone(),
             self.published_channel.clone(),
             self.published_receiver.clone(),
         )
@@ -341,7 +324,6 @@ struct PublishHandler {
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>>,
     on_track_fn: Arc<Mutex<OnTrackFn>>,
-    publishers: Arc<Mutex<HashMap<String, Arc<Mutex<Publisher>>>>>,
     relay_sender: Arc<RelaySender>,
     private_ip: String,
     published_channel: Arc<replay_channel::ReplayChannel<Arc<Mutex<Publisher>>>>,
@@ -372,42 +354,15 @@ impl PeerConnectionEventHandler for PublishHandler {
         let id = track.track_id().await;
         tracing::info!("Track published: track_id={}", id);
 
-        {
-            let publishers_clone = self.publishers.clone();
-            let mut publishers = self.publishers.lock().await;
-            if let Some(p) = publishers.get(&id) {
-                let mut publisher = p.lock().await;
-                publisher.set_publisher_type(PublisherType::Simulcast).await;
-                publisher.create_local_tracks(track.clone()).await;
-            } else {
-                let publisher = Publisher::new(
-                    track.clone(),
-                    self.router_event_sender.clone(),
-                    PublisherType::Simple,
-                    self.relay_sender.clone(),
-                    self.private_ip.clone(),
-                    Box::new(move |closed_id| {
-                        let publishers_clone = publishers_clone.clone();
-                        tokio::spawn(async move {
-                            let mut guard = publishers_clone.lock().await;
-                            guard.remove(&closed_id);
-                        });
-                    }),
-                )
-                .await;
-                {
-                    let mut publisher = publisher.lock().await;
-                    publisher.create_local_tracks(track.clone()).await;
-                }
+        let publisher = Publisher::new(
+            track.clone(),
+            self.router_event_sender.clone(),
+            self.relay_sender.clone(),
+            self.private_ip.clone(),
+        )
+        .await;
 
-                publishers.insert(id.clone(), publisher.clone());
-                self.published_channel.send(publisher.clone()).await;
-                let _ = self
-                    .router_event_sender
-                    .send(RouterEvent::MediaPublished(id, publisher))
-                    .expect("could not send router event");
-            }
-        }
+        self.published_channel.send(publisher.clone()).await;
 
         let locked = self.on_track_fn.lock().await;
         (locked)(track);
@@ -454,7 +409,6 @@ impl PeerConnectionEventHandler for PublishHandler {
         *self.connection_state.write().unwrap() = state;
         if state == RTCPeerConnectionState::Closed || state == RTCPeerConnectionState::Failed {
             PublishTransport::cleanup(
-                self.publishers.clone(),
                 self.published_channel.clone(),
                 self.published_receiver.clone(),
             )

@@ -77,7 +77,7 @@ impl SubscribeTransport {
         router_event_sender: mpsc::UnboundedSender<RouterEvent>,
         media_config: MediaConfig,
         transport_config: WebRTCTransportConfig,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let id = Uuid::new_v4().to_string();
 
         let on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>> =
@@ -103,8 +103,7 @@ impl SubscribeTransport {
 
         let peer_connection =
             transport::generate_peer_connection(handler.clone(), media_config, transport_config)
-                .await
-                .unwrap();
+                .await?;
 
         let _ = handler
             .peer_connection
@@ -126,7 +125,7 @@ impl SubscribeTransport {
 
         tracing::debug!("SubscribeTransport {} is created", transport.id);
 
-        transport
+        Ok(transport)
     }
 
     /// This starts subscribing the published media and returns an offer sdp. Please provide a [`crate::publisher::Publisher`] ID.
@@ -637,7 +636,6 @@ impl SubscribeHandler {
         pc: &Arc<dyn PeerConnection>,
     ) -> Result<RTCSessionDescription, Error> {
         let offer = pc.create_offer(Some(self.offer_options.clone())).await?;
-        let offer = adjust_extmap(offer)?;
 
         let gathering_complete = self.trap_gathering_complete();
         pc.set_local_description(offer).await?;
@@ -648,6 +646,7 @@ impl SubscribeHandler {
             SubscriberErrorKind::NoDescriptionError,
         ))?;
 
+        let offer = adjust_extmap(offer)?;
         tracing::info!("peer sending offer");
         Ok(offer)
     }

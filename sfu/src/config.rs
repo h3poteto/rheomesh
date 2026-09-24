@@ -107,6 +107,8 @@ impl WebRTCTransportConfig {
             None => 0,
         };
 
+        tracing::debug!("port: {}", port);
+
         if self.announced_ips.is_empty() {
             Ok(vec![SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::UNSPECIFIED),

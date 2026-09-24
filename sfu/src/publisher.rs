@@ -23,12 +23,12 @@ use crate::{
 #[derivative(Debug)]
 pub struct Publisher {
     pub track_id: String,
+    #[derivative(Debug = "ignore")]
+    track: Arc<dyn TrackRemote>,
     local_tracks: HashMap<u32, Arc<LocalTrack>>,
     rtp_senders: Arc<RwLock<HashMap<u32, mpsc::UnboundedSender<rtp::packet::Packet>>>>,
     router_sender: mpsc::UnboundedSender<RouterEvent>,
     publisher_event_sender: mpsc::UnboundedSender<PublisherEvent>,
-    #[derivative(Debug = "ignore")]
-    close_callback: Box<dyn Fn(String) + Send + Sync>,
     rid_to_ssrc: HashMap<String, u32>,
     pub publisher_type: PublisherType,
     subscriber_event_sender: Vec<mpsc::UnboundedSender<SubscriberEvent>>,
@@ -37,16 +37,15 @@ pub struct Publisher {
     relayed_publishers: HashMap<u32, (String, u16)>,
     relay_udp_sender: Option<Arc<RelayUDPSender>>,
     private_ip: String,
+    published: bool,
 }
 
 impl Publisher {
     pub(crate) async fn new(
         track: Arc<dyn TrackRemote>,
         router_sender: mpsc::UnboundedSender<RouterEvent>,
-        publisher_type: PublisherType,
         relay_sender: Arc<RelaySender>,
         private_ip: String,
-        close_callback: Box<dyn Fn(String) + Send + Sync>,
     ) -> Arc<Mutex<Publisher>> {
         let (tx, rx) = mpsc::unbounded_channel::<PublisherEvent>();
         let track_id = track.track_id().await;
@@ -58,19 +57,20 @@ impl Publisher {
 
         let publisher = Self {
             track_id: track_id.clone(),
+            track: track.clone(),
             local_tracks: HashMap::new(),
             rtp_senders: rtp_senders.clone(),
             router_sender,
-            publisher_event_sender: tx,
-            close_callback,
+            publisher_event_sender: tx.clone(),
             rid_to_ssrc: HashMap::new(),
-            publisher_type,
+            publisher_type: PublisherType::Simple,
             subscriber_event_sender: vec![],
             relay_sender,
             relayed_targets: vec![],
             relayed_publishers: HashMap::new(),
             relay_udp_sender: None,
             private_ip,
+            published: false,
         };
         let publisher = Arc::new(Mutex::new(publisher));
         {
@@ -82,44 +82,40 @@ impl Publisher {
 
         {
             tokio::spawn(async move {
-                Self::track_remote_poll(track, rtp_senders).await;
+                Self::track_remote_poll(track, rtp_senders, tx).await;
             });
         }
 
         publisher
     }
 
-    pub(crate) async fn create_local_tracks(&mut self, track: Arc<dyn TrackRemote>) {
-        let ssrcs = track.ssrcs().await;
-        let track_id = track.track_id().await;
-        for ssrc in ssrcs {
-            if self.local_tracks.contains_key(&ssrc) {
-                continue;
-            }
-            let rid = track.rid(ssrc).await.unwrap_or_default();
-            let local_track = Arc::new(
-                LocalTrack::new(
-                    track_id.clone(),
-                    ssrc,
-                    rid.clone(),
-                    track.clone(),
-                    self.publisher_event_sender.clone(),
-                )
-                .await,
-            );
-
-            self.rtp_senders
-                .write()
-                .unwrap()
-                .insert(ssrc, local_track.rtp_input_sender());
-
-            self.local_tracks.insert(ssrc, local_track.clone());
-            self.rid_to_ssrc.insert(rid, ssrc);
-
-            let _ = self
-                .publisher_event_sender
-                .send(PublisherEvent::TrackAdded(ssrc, local_track));
+    async fn create_local_track(&mut self, ssrc: u32, rid: String) {
+        if self.local_tracks.contains_key(&ssrc) {
+            return;
         }
+
+        let local_track = Arc::new(
+            LocalTrack::new(
+                self.track_id.clone(),
+                ssrc,
+                rid.clone(),
+                self.track.clone(),
+                self.publisher_event_sender.clone(),
+            )
+            .await,
+        );
+
+        self.rtp_senders
+            .write()
+            .unwrap()
+            .insert(ssrc, local_track.rtp_input_sender());
+
+        self.local_tracks.insert(ssrc, local_track.clone());
+        self.rid_to_ssrc.insert(rid, ssrc);
+
+        let _ = self
+            .publisher_event_sender
+            .send(PublisherEvent::TrackAdded(ssrc, local_track));
     }
 
     pub(crate) fn get_local_track(&self, rid: &str) -> Result<Arc<LocalTrack>, Error> {
@@ -178,9 +174,16 @@ impl Publisher {
     pub(crate) async fn track_remote_poll(
         track: Arc<dyn TrackRemote>,
         rtp_senders: Arc<RwLock<HashMap<u32, mpsc::UnboundedSender<rtp::packet::Packet>>>>,
+        publisher_event_sender: mpsc::UnboundedSender<PublisherEvent>,
     ) {
         while let Some(event) = track.poll().await {
             match event {
+                TrackRemoteEvent::OnOpen(init) => {
+                    let ssrc = init.ssrc;
+                    let rid = init.rid.unwrap_or_default();
+                    tracing::info!("Simulcast track opened with: ssrc={}, rid={}", ssrc, rid);
+                    let _ = publisher_event_sender.send(PublisherEvent::TrackOpened(ssrc, rid));
+                }
                 TrackRemoteEvent::OnRtpPacket(packet) => {
                     let ssrc = packet.header.ssrc;
                     let sender = rtp_senders.read().unwrap().get(&ssrc).cloned();
@@ -189,7 +192,6 @@ impl Publisher {
                             let _ = s.send(packet);
                         }
                         None => {
-                            // TODO: Unknown track, what should we do? If simulcast packet arrives, please create a dedicated local track.
                             tracing::trace!(
                                 "No local track for ssrc={}, dropping packet",
                                 packet.header.ssrc
@@ -210,8 +212,24 @@ impl Publisher {
     ) {
         while let Some(event) = event_receiver.recv().await {
             match event {
+                PublisherEvent::TrackOpened(ssrc, rid) => {
+                    let mut p = publisher.lock().await;
+                    if !rid.is_empty() && p.publisher_type != PublisherType::Simulcast {
+                        p.set_publisher_type(PublisherType::Simulcast).await;
+                    }
+                    p.create_local_track(ssrc, rid).await;
+                }
                 PublisherEvent::TrackAdded(ssrc, local_track) => {
                     let mut p = publisher.lock().await;
+
+                    if !p.published {
+                        p.published = true;
+                        let _ = p.router_sender.send(RouterEvent::MediaPublished(
+                            p.track_id.clone(),
+                            Arc::clone(&publisher),
+                        ));
+                    }
+
                     if p.relayed_targets.is_empty() {
                         continue;
                     }
@@ -280,7 +298,6 @@ impl Publisher {
                         let _ = p
                             .router_sender
                             .send(RouterEvent::PublisherRemoved(id.clone()));
-                        (p.close_callback)(id.clone());
                         let _ = p.publisher_event_sender.send(PublisherEvent::Close);
                     }
                 }
@@ -315,7 +332,6 @@ impl Publisher {
                         .router_sender
                         .send(RouterEvent::PublisherRemoved(p.track_id.clone()));
 
-                    (p.close_callback)(p.track_id.clone());
                     break;
                 }
             }
@@ -411,6 +427,7 @@ impl Publisher {
 
 #[derive(Debug)]
 pub(crate) enum PublisherEvent {
+    TrackOpened(u32, String),
     TrackAdded(u32, Arc<LocalTrack>),
     TrackRemoved(u32),
     RTPSenderLoopClosed(u32),
