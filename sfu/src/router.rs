@@ -91,7 +91,7 @@ impl Router {
     pub async fn create_publish_transport(
         &self,
         transport_config: WebRTCTransportConfig,
-    ) -> PublishTransport {
+    ) -> Result<PublishTransport, Error> {
         let tx = self.router_event_sender.clone();
         PublishTransport::new(
             tx,
@@ -106,7 +106,7 @@ impl Router {
     pub async fn create_subscribe_transport(
         &self,
         transport_config: WebRTCTransportConfig,
-    ) -> SubscribeTransport {
+    ) -> Result<SubscribeTransport, Error> {
         let tx = self.router_event_sender.clone();
         SubscribeTransport::new(tx, self.media_config.clone(), transport_config).await
     }

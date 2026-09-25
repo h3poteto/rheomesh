@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use rtc::rtp;
+use rtc::rtp_transceiver::PayloadType;
+use rtc::rtp_transceiver::rtp_sender::{RTCRtpCodec, RTCRtpCodecParameters};
 use tokio::sync::broadcast;
-use webrtc::rtp;
-use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTCRtpCodecParameters};
-use webrtc::rtp_transceiver::PayloadType;
 
 use crate::rtp::layer::Layer;
 use crate::track::Track;
@@ -62,15 +62,15 @@ impl Track for RelayedTrack {
     }
 
     fn payload_type(&self) -> PayloadType {
-        self.codec_parameters.payload_type.clone().into()
+        self.codec_parameters.payload_type.clone()
     }
 
     fn parameters(&self) -> RTCRtpCodecParameters {
-        self.codec_parameters.clone().into()
+        self.codec_parameters.clone()
     }
 
-    fn capability(&self) -> RTCRtpCodecCapability {
-        self.codec_parameters.capability.clone().into()
+    fn capability(&self) -> RTCRtpCodec {
+        self.codec_parameters.rtp_codec.clone()
     }
 
     fn id(&self) -> String {

@@ -4,10 +4,9 @@ use std::sync::{
 };
 
 use derivative::Derivative;
+use rtc::{rtp, shared::marshal::Marshal};
 use tokio::{net::UdpSocket, sync::broadcast};
 use uuid::Uuid;
-use webrtc::rtp;
-use webrtc_util::Marshal;
 
 use crate::{
     error::{Error, RecordingErrorKind},
@@ -28,7 +27,7 @@ impl RecordingTrack {
     pub(crate) async fn new() -> Result<Self, Error> {
         let id = Uuid::new_v4().to_string();
         let (closed_sender, _closed_receiver) = broadcast::channel(1);
-        let port = find_unused_port().ok_or_else(|| {
+        let port = find_unused_port(10000, 65535).ok_or_else(|| {
             Error::new_recording(
                 "No free ports available for recording track".to_string(),
                 RecordingErrorKind::PortNotFoundError,

@@ -246,7 +246,7 @@ impl RelayServer {
                             }
                         }
 
-                        if let Some(udp_port) = find_unused_port() {
+                        if let Some(udp_port) = find_unused_port(10000, 65535) {
                             let p = publishers.get(&router_id).cloned().unwrap_or_default();
                             match RelayRTPServer::new(udp_port, p).await {
                                 Ok(udp) => {
@@ -421,7 +421,7 @@ impl RelayServer {
                             )]))),
                         );
 
-                        if let Some(udp_port) = find_unused_port() {
+                        if let Some(udp_port) = find_unused_port(10000, 65535) {
                             let p = data_publishers.get(&router_id).cloned().unwrap_or_default();
                             match RelaySCTPServer::new(udp_port, p).await {
                                 Ok(udp) => {

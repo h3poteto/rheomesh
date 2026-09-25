@@ -14,7 +14,6 @@ jobs:
   data:
     env:
       CARGO_TEAM_COLOR: always
-      PUBLIC_IP: 192.168.10.1
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -66,7 +65,6 @@ jobs:
   camera:
     env:
       CARGO_TEAM_COLOR: always
-      PUBLIC_IP: 192.168.10.1
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -118,7 +116,6 @@ jobs:
   screen:
     env:
       CARGO_TEAM_COLOR: always
-      PUBLIC_IP: 192.168.10.1
       DISPLAY: ":99"
     runs-on: ubuntu-latest
     timeout-minutes: 10
