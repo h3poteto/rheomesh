@@ -16,9 +16,9 @@ use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::peer_connection::{
+    RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCSessionDescription,
+};
 
 mod common;
 use common::room::{Room, RoomOwner};
@@ -111,13 +111,21 @@ impl WebSocket {
             .parse::<Ipv4Addr>()
             .expect("failed to parse public IP address");
         config.announced_ips = vec![IpAddr::V4(ipv4)];
-        config.configuration.ice_servers = vec![RTCIceServer {
-            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-            ..Default::default()
-        }];
+        config.configuration = RTCConfigurationBuilder::new()
+            .with_ice_servers(vec![RTCIceServer {
+                urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+                ..Default::default()
+            }])
+            .build();
 
-        let publish_transport = router.create_publish_transport(config.clone()).await;
-        let subscribe_transport = router.create_subscribe_transport(config).await;
+        let publish_transport = router
+            .create_publish_transport(config.clone())
+            .await
+            .expect("failed to create publish_transport");
+        let subscribe_transport = router
+            .create_subscribe_transport(config)
+            .await
+            .expect("failed to create subscribe_transport");
 
         Self {
             room,
