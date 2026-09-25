@@ -2,16 +2,12 @@ use std::sync::Arc;
 
 use actix_web::{HttpRequest, HttpResponse, web};
 use async_trait::async_trait;
-use tokio::sync::mpsc::UnboundedSender;
 use webrtc::peer_connection::RTCSessionDescription;
 
 use super::{etag::ETagStore, parser::parse_candidates};
 use crate::{
-    config::RID,
     error::{Error, WhepSdpErrorKind},
-    router::{Router, RouterEvent},
     subscribe_transport::SubscribeTransport,
-    track::Track,
     transport::Transport,
 };
 
@@ -54,25 +50,6 @@ where
         Ok(())
     }
 
-    async fn find_local_track(
-        &self,
-        router_event_sender: UnboundedSender<RouterEvent>,
-        publisher_id: String,
-    ) -> Result<Arc<dyn Track>, Error> {
-        match Router::find_local_track(router_event_sender.clone(), publisher_id.clone(), RID::HIGH)
-            .await
-        {
-            Ok(track) => Ok(track),
-            Err(_) => {
-                match Router::find_relayed_track(router_event_sender, publisher_id, RID::HIGH).await
-                {
-                    Ok(relayed_track) => Ok(relayed_track),
-                    Err(err) => Err(err),
-                }
-            }
-        }
-    }
-
     /// POST /whep/session_id/publisher_id - For WHEP SDP offer
     async fn handle_offer(
         &self,
@@ -97,23 +74,14 @@ where
                 )
             })?;
 
-        let track = self
-            .find_local_track(
-                subscribe_transport.router_event_sender.clone(),
-                publisher_id.to_string(),
-            )
-            .await?;
-
-        let _subscriber = subscribe_transport
-            .subscribe_track(publisher_id.to_string(), track)
-            .await?;
-
         // Parse SDP offer from body
         let sdp_string = String::from_utf8(body.to_vec()).map_err(|e| {
             Error::new_whep_sdp(e.to_string(), WhepSdpErrorKind::InvalidSdpOfferError)
         })?;
         let sdp_offer = RTCSessionDescription::offer(sdp_string)?;
-        let answer = subscribe_transport.get_answer(sdp_offer).await?;
+        let (_subscriber, answer) = subscribe_transport
+            .subscribe_with_offer(publisher_id, sdp_offer)
+            .await?;
 
         let etag = self.etag_store.increment(&session_id).await;
 

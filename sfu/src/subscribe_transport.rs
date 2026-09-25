@@ -70,6 +70,7 @@ pub struct SubscribeTransport {
     signaling_pending: Arc<AtomicBool>,
     #[derivative(Debug = "ignore")]
     handler: Arc<SubscribeHandler>,
+    whep: Arc<AtomicBool>,
 }
 
 impl SubscribeTransport {
@@ -86,6 +87,7 @@ impl SubscribeTransport {
             Arc::new(Mutex::new(Box::new(|_| {})));
         let offer_options = RTCOfferOptions { ice_restart: false };
         let signaling_pending = Arc::new(AtomicBool::new(false));
+        let whep = Arc::new(AtomicBool::new(false));
         let (closed_sender, closed_receiver) = watch::channel(false);
 
         let handler = Arc::new(SubscribeHandler {
@@ -94,6 +96,7 @@ impl SubscribeTransport {
             on_negotiation_needed_fn: on_negotiation_needed_fn.clone(),
             offer_options: offer_options.clone(),
             signaling_pending: signaling_pending.clone(),
+            whep: whep.clone(),
             closed_sender: closed_sender.clone(),
             signaling_state: Arc::new(RwLock::new(RTCSignalingState::default())),
             ice_gathering_state: Arc::new(RwLock::new(RTCIceGatheringState::default())),
@@ -121,6 +124,7 @@ impl SubscribeTransport {
             closed_receiver,
             signaling_pending,
             handler,
+            whep,
         };
 
         tracing::debug!("SubscribeTransport {} is created", transport.id);
@@ -146,6 +150,24 @@ impl SubscribeTransport {
         let subscriber = self.subscribe_track(publisher_id, local_track).await?;
         let offer = self.create_offer().await?;
         Ok((subscriber, offer))
+    }
+
+    /// After subscribe a track, set an empty offer and get a corresponding SDP answer.
+    pub async fn subscribe_with_offer(
+        &self,
+        publisher_id: String,
+        offer: RTCSessionDescription,
+    ) -> Result<(Arc<Mutex<Subscriber>>, RTCSessionDescription), Error> {
+        self.whep.store(true, Ordering::Relaxed);
+
+        let local_track = self
+            .find_local_track(publisher_id.clone(), RID::HIGH)
+            .await?;
+
+        let subscriber = self.subscribe_track(publisher_id, local_track).await?;
+        let answer = self.get_answer(offer).await?;
+
+        Ok((subscriber, answer))
     }
 
     async fn find_local_track(
@@ -528,6 +550,7 @@ struct SubscribeHandler {
     on_negotiation_needed_fn: Arc<Mutex<OnNegotiationNeededFn>>,
     offer_options: RTCOfferOptions,
     signaling_pending: Arc<AtomicBool>,
+    whep: Arc<AtomicBool>,
     closed_sender: watch::Sender<bool>,
     signaling_state: Arc<RwLock<RTCSignalingState>>,
     connection_state: Arc<RwLock<RTCPeerConnectionState>>,
@@ -599,6 +622,13 @@ impl SubscribeHandler {
     }
 
     async fn negotiate(&self) {
+        if self.whep.load(Ordering::Relaxed) {
+            tracing::info!(
+                "Skip negotiation because WHEP has no path for a server-initiated offer"
+            );
+            return;
+        }
+
         while self.signaling_pending.load(Ordering::Relaxed) {
             sleep(Duration::from_millis(10)).await;
         }
