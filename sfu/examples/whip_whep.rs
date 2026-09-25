@@ -152,11 +152,6 @@ async fn join_room(
     let session_id = uuid::Uuid::new_v4().to_string();
 
     let mut config = WebRTCTransportConfig::default();
-    let ip = env::var("PUBLIC_IP").expect("PUBLIC_IP must be set");
-    let ipv4 = ip
-        .parse::<Ipv4Addr>()
-        .expect("failed to parse public IP address");
-    config.announced_ips = vec![IpAddr::V4(ipv4)];
     config.configuration = RTCConfigurationBuilder::new()
         .with_ice_servers(vec![RTCIceServer {
             urls: vec!["stun:stun.l.google.com:19302".to_owned()],

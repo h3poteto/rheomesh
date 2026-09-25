@@ -35,7 +35,9 @@ async fn main() -> std::io::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "debug".into()),
+                .unwrap_or_else(|_| "debug,rtc=info".into()),
+            // tracing_subscriber::EnvFilter::try_from_default_env()
+            //     .unwrap_or_else(|_| "debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -120,12 +122,6 @@ impl WebSocket {
         let router = r.lock().await;
 
         let mut config = rheomesh::config::WebRTCTransportConfig::default();
-        // Public IP address of your server.
-        let ip = env::var("PUBLIC_IP").expect("PUBLIC_IP is required");
-        let ipv4 = ip
-            .parse::<Ipv4Addr>()
-            .expect("failed to parse public IP address");
-        config.announced_ips = vec![IpAddr::V4(ipv4)];
         config.configuration = RTCConfigurationBuilder::new()
             .with_ice_servers(vec![RTCIceServer {
                 urls: vec!["stun:stun.l.google.com:19302".to_owned()],

@@ -44,7 +44,7 @@ pub struct PortRange {
 pub struct WebRTCTransportConfig {
     #[derivative(Debug = "ignore")]
     pub configuration: RTCConfiguration,
-    pub announced_ips: Vec<IpAddr>,
+    pub bind_ips: Vec<IpAddr>,
     pub ice_disconnected_timeout: Option<Duration>,
     pub ice_failed_timeout: Option<Duration>,
     pub ice_keep_alive_interval: Option<Duration>,
@@ -58,7 +58,7 @@ impl Default for WebRTCTransportConfig {
     fn default() -> Self {
         Self {
             configuration: RTCConfiguration::default(),
-            announced_ips: vec![],
+            bind_ips: vec![],
             ice_disconnected_timeout: None,
             ice_failed_timeout: None,
             ice_keep_alive_interval: None,
@@ -107,14 +107,14 @@ impl WebRTCTransportConfig {
             None => 0,
         };
 
-        if self.announced_ips.is_empty() {
+        if self.bind_ips.is_empty() {
             Ok(vec![SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::UNSPECIFIED),
                 port,
             )])
         } else {
             Ok(self
-                .announced_ips
+                .bind_ips
                 .iter()
                 .map(|ip| SocketAddr::new(*ip, port))
                 .collect())

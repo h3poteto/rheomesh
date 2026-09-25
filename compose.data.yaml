@@ -34,8 +34,6 @@ services:
     working_dir: /etc/sfu
     environment:
       LOCAL_IP: sfu1
-      # Please override your local machine IP address.
-      PUBLIC_IP: 192.168.10.1
       RTC_MIN_PORT: 12000
       RTC_MAX_PORT: 12020
       REDIS_HOST: redis
@@ -55,8 +53,6 @@ services:
     working_dir: /etc/sfu
     environment:
       LOCAL_IP: sfu2
-      # Please override your local machine IP address.
-      PUBLIC_IP: 192.168.10.1
       RTC_MIN_PORT: 13000
       RTC_MAX_PORT: 13020
       REDIS_HOST: redis
