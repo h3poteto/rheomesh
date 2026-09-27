@@ -395,21 +395,24 @@ impl SubscribeTransport {
             ..Default::default()
         };
         let ssrc = random::<u32>();
-        let dummy_track = Arc::new(TrackLocalStaticSample::new(MediaStreamTrack::new(
-            "webrtc-rs".to_owned(),
-            "probator".to_owned(),
-            "probator".to_owned(),
-            RtpCodecKind::Audio,
-            vec![RTCRtpEncodingParameters {
-                rtp_coding_parameters: RTCRtpCodingParameters {
-                    ssrc: Some(ssrc),
+        let dummy_track = Arc::new(TrackLocalStaticSample::new(
+            Instant::now(),
+            MediaStreamTrack::new(
+                "webrtc-rs".to_owned(),
+                "probator".to_owned(),
+                "probator".to_owned(),
+                RtpCodecKind::Audio,
+                vec![RTCRtpEncodingParameters {
+                    rtp_coding_parameters: RTCRtpCodingParameters {
+                        ssrc: Some(ssrc),
+                        ..Default::default()
+                    },
+                    codec,
+                    active: true,
                     ..Default::default()
-                },
-                codec,
-                active: true,
-                ..Default::default()
-            }],
-        ))?);
+                }],
+            ),
+        )?);
         let rtp_sender = self.peer_connection.add_track(dummy_track.clone()).await?;
         let _prober = Prober::new(dummy_track, rtp_sender, ssrc);
 

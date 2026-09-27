@@ -10,7 +10,7 @@ use local_ip_address::local_ip;
 use rtc::{
     ice::network_type::NetworkType, rtp_transceiver::rtp_sender::RTCRtpCodecParameters, sdp::extmap,
 };
-use webrtc::{peer_connection::RTCConfiguration, peer_connection::SettingEngine};
+use webrtc::peer_connection::{RTCConfiguration, SettingEngine, SettingEngineBuilder};
 
 use crate::{
     error::{self, Error},
@@ -72,30 +72,21 @@ impl Default for WebRTCTransportConfig {
 
 impl WebRTCTransportConfig {
     pub(crate) fn setting_engine(&self) -> SettingEngine {
-        let mut setting_engine = SettingEngine::default();
-
-        if self.ice_disconnected_timeout.is_some()
-            || self.ice_failed_timeout.is_some()
-            || self.ice_keep_alive_interval.is_some()
-        {
-            setting_engine.set_ice_timeouts(
+        let mut setting_engine = SettingEngineBuilder::new()
+            .with_ice_timeouts(
                 self.ice_disconnected_timeout,
                 self.ice_failed_timeout,
                 self.ice_keep_alive_interval,
-            );
-        }
-
-        if self.network_types.len() > 0 {
-            setting_engine.set_network_types(self.network_types.clone());
-        }
+            )
+            .with_network_types(self.network_types.clone());
 
         if self.ice_username_fragment.is_some() || self.ice_password.is_some() {
             let username = self.ice_username_fragment.clone().unwrap_or("".to_string());
             let password = self.ice_password.clone().unwrap_or("".to_string());
-            setting_engine.set_ice_credentials(username, password);
+            setting_engine = setting_engine.with_ice_credentials(username, password);
         }
 
-        setting_engine
+        setting_engine.build()
     }
 
     pub(crate) fn udp_addrs(&self) -> Result<Vec<SocketAddr>, Error> {

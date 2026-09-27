@@ -17,7 +17,7 @@ use crate::{
 #[derivative(Debug)]
 pub struct DataPublisher {
     pub id: String,
-    pub channel_id: u16,
+    pub channel_id: usize,
     pub label: String,
     pub(crate) data_sender: broadcast::Sender<RTCDataChannelMessage>,
     #[derivative(Debug = "ignore")]

@@ -147,7 +147,7 @@ impl RelaySender {
         port: u16,
         router_id: String,
         data_publisher_id: String,
-        channel_id: u16,
+        channel_id: usize,
         label: String,
     ) -> Result<u16, Error> {
         let addr = format!("{}:{}", ip, port);
