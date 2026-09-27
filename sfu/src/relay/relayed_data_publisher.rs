@@ -1,5 +1,5 @@
 use tokio::sync::broadcast;
-use webrtc::data_channel::data_channel_message::DataChannelMessage;
+use webrtc::data_channel::RTCDataChannelMessage;
 
 use crate::data_channel::Channel;
 
@@ -8,7 +8,7 @@ use crate::data_channel::Channel;
 pub struct RelayedDataPublisher {
     ///The original data publisher ID.
     pub source_data_publisher_id: String,
-    pub(crate) data_sender: broadcast::Sender<DataChannelMessage>,
+    pub(crate) data_sender: broadcast::Sender<RTCDataChannelMessage>,
 }
 
 impl RelayedDataPublisher {
@@ -42,7 +42,7 @@ impl Channel for RelayedDataPublisher {
         self.source_data_publisher_id.clone()
     }
 
-    fn data_sender(&self) -> broadcast::Sender<DataChannelMessage> {
+    fn data_sender(&self) -> broadcast::Sender<RTCDataChannelMessage> {
         self.data_sender.clone()
     }
 }

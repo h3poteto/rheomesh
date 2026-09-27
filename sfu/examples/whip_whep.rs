@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::{RTCConfigurationBuilder, RTCIceServer};
 
 mod common;
 use common::room::{Room, RoomOwner};
@@ -152,15 +152,12 @@ async fn join_room(
     let session_id = uuid::Uuid::new_v4().to_string();
 
     let mut config = WebRTCTransportConfig::default();
-    let ip = env::var("PUBLIC_IP").expect("PUBLIC_IP must be set");
-    let ipv4 = ip
-        .parse::<Ipv4Addr>()
-        .expect("failed to parse public IP address");
-    config.announced_ips = vec![IpAddr::V4(ipv4)];
-    config.configuration.ice_servers = vec![RTCIceServer {
-        urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-        ..Default::default()
-    }];
+    config.configuration = RTCConfigurationBuilder::new()
+        .with_ice_servers(vec![RTCIceServer {
+            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
+            ..Default::default()
+        }])
+        .build();
 
     let mut publisher_ids = vec![];
 
@@ -172,12 +169,14 @@ async fn join_room(
                 .lock()
                 .await
                 .create_publish_transport(config.clone())
-                .await;
+                .await
+                .expect("failed to create publish_transport");
             let subscribe_transport = router
                 .lock()
                 .await
                 .create_subscribe_transport(config.clone())
-                .await;
+                .await
+                .expect("failed to create subscribe_transport");
             let session = Session {
                 session_id: session_id.clone(),
                 owner: room_owner.clone(),
@@ -205,12 +204,14 @@ async fn join_room(
                 .lock()
                 .await
                 .create_publish_transport(config.clone())
-                .await;
+                .await
+                .expect("failed to create publish_transport");
             let subscribe_transport = router
                 .lock()
                 .await
                 .create_subscribe_transport(config.clone())
-                .await;
+                .await
+                .expect("failed to create subscribe_transport");
             let session = Session {
                 session_id: session_id.clone(),
                 owner: room_owner.clone(),

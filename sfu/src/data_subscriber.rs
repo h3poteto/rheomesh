@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use derivative::Derivative;
-use tokio::sync::{broadcast, mpsc, watch, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use uuid::Uuid;
-use webrtc::data_channel::{
-    data_channel_message::DataChannelMessage, data_channel_state::RTCDataChannelState,
-    RTCDataChannel,
-};
+use webrtc::data_channel::{DataChannel, RTCDataChannelMessage, RTCDataChannelState};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -14,14 +11,14 @@ pub struct DataSubscriber {
     pub id: String,
     closed_sender: Arc<mpsc::UnboundedSender<bool>>,
     #[derivative(Debug = "ignore")]
-    data_channel: Arc<RTCDataChannel>,
+    data_channel: Arc<dyn DataChannel>,
 }
 
 impl DataSubscriber {
     pub(crate) fn new(
         data_publisher_id: String,
-        data_channel: Arc<RTCDataChannel>,
-        data_sender: broadcast::Sender<DataChannelMessage>,
+        data_channel: Arc<dyn DataChannel>,
+        data_sender: broadcast::Sender<RTCDataChannelMessage>,
         transport_closed: watch::Receiver<bool>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
@@ -58,8 +55,8 @@ impl DataSubscriber {
     pub(crate) async fn data_event_loop(
         id: String,
         source_channel_id: String,
-        data_channel: Arc<RTCDataChannel>,
-        mut data_receiver: broadcast::Receiver<DataChannelMessage>,
+        data_channel: Arc<dyn DataChannel>,
+        mut data_receiver: broadcast::Receiver<RTCDataChannelMessage>,
         mut transport_closed: watch::Receiver<bool>,
         subscriber_closed: Arc<Mutex<mpsc::UnboundedReceiver<bool>>>,
     ) {
@@ -85,12 +82,11 @@ impl DataSubscriber {
                 res = data_receiver.recv() => {
                     match res {
                         Ok(res) => {
-                            let state = data_channel.ready_state();
+                            let state = data_channel.ready_state().await.unwrap_or_default();
                             match state {
                                 RTCDataChannelState::Open => {
-                                    let data = res.data;
-                                    tracing::debug!("DataSubscriber {} received data: {:?}", id, data);
-                                    let _ = data_channel.send(&data).await;
+                                    tracing::debug!("DataSubscriber {} received data: {:?}", id, res.data);
+                                    let _ = data_channel.send(res.data).await;
                                 }
                                 _ => {
                                     tracing::warn!("Data channel is not opened, state={:?}", state);

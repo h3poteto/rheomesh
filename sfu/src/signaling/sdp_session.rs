@@ -1,4 +1,4 @@
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::peer_connection::RTCSessionDescription;
 use webrtc_sdp::{
     SdpSession,
     attribute_type::{SdpAttribute, SdpAttributeType},

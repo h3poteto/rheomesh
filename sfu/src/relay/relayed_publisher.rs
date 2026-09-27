@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
+use rtc::rtp_transceiver::rtp_sender::RTCRtpCodecParameters;
 use tokio::{
     net::UdpSocket,
     sync::{Mutex, broadcast, mpsc},
 };
-use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters;
 
 use crate::{
     error::{Error, PublisherErrorKind, RelayErrorKind},
@@ -62,7 +62,7 @@ impl RelayedPublisher {
         }
 
         {
-            let sender_port = find_unused_port().ok_or(Error::new_relay(
+            let sender_port = find_unused_port(10000, 65535).ok_or(Error::new_relay(
                 "Failed to find unused port for RTCP receiver".to_string(),
                 RelayErrorKind::RelayReceiverError,
             ))?;
