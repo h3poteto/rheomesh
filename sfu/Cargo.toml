@@ -34,7 +34,7 @@ thiserror = "1.0"
 tokio = { version = "1.38", features = ["macros", "sync", "rt", "time", "io-util"] }
 tracing = "0.1"
 uuid = { version = "1.8", features = ["v4"] }
-webrtc = "0.20.5"
+webrtc = "0.21.0"
 rtc = "0.20.5"
 webrtc-sdp = "0.3.15"
 actix-web = { version = "4.9", optional = true }
