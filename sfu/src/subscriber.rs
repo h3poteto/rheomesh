@@ -497,6 +497,9 @@ impl Subscriber {
                                 }
                             }
                         }
+                        Some(_) => {
+                            tracing::warn!("Unknown event received: id={}", id);
+                        },
                         None => {
                             let _ = event_sender.send(SubscriberEvent::Close);
                             break;

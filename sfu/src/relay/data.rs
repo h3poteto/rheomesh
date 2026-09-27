@@ -227,7 +227,7 @@ impl MessageData {
 pub(crate) struct ChannelData {
     pub(crate) router_id: String,
     pub(crate) data_publisher_id: String,
-    pub(crate) channel_id: u16,
+    pub(crate) channel_id: usize,
     pub(crate) label: String,
     pub(crate) closed: bool,
 }
