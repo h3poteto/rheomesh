@@ -2033,6 +2033,16 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64 0.22.1",
+ "serde_core",
+]
+
+[[package]]
+name = "pem"
 version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
@@ -2308,7 +2318,7 @@ version = "0.14.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8774e05a7d0de114588e6a28fe7e71694b82614ed569d86d8b389dfbc98b8ad8"
 dependencies = [
- "pem",
+ "pem 4.0.0",
  "ring",
  "rustls-pki-types",
  "time",
@@ -2424,7 +2434,7 @@ dependencies = [
  "openport",
  "rand 0.10.2",
  "redis",
- "rtc",
+ "rtc 0.21.0",
  "serde",
  "serde_json",
  "strum",
@@ -2496,20 +2506,20 @@ dependencies = [
  "rand 0.10.2",
  "rcgen",
  "ring",
- "rtc-datachannel",
- "rtc-dtls",
- "rtc-ice",
- "rtc-interceptor",
- "rtc-mdns",
- "rtc-media",
- "rtc-rtcp",
- "rtc-rtp",
- "rtc-sctp",
- "rtc-sdp",
- "rtc-shared",
- "rtc-srtp",
- "rtc-stun",
- "rtc-turn",
+ "rtc-datachannel 0.20.5",
+ "rtc-dtls 0.20.5",
+ "rtc-ice 0.20.5",
+ "rtc-interceptor 0.20.5",
+ "rtc-mdns 0.20.5",
+ "rtc-media 0.20.5",
+ "rtc-rtcp 0.20.5",
+ "rtc-rtp 0.20.5",
+ "rtc-sctp 0.20.5",
+ "rtc-sdp 0.20.5",
+ "rtc-shared 0.20.5",
+ "rtc-srtp 0.20.5",
+ "rtc-stun 0.20.5",
+ "rtc-turn 0.20.5",
  "rustls",
  "sansio",
  "serde",
@@ -2520,6 +2530,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtc"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0c5e4a8791908797789d63efd013d6987b1f87cce4255b94343d1fa9c69a81f"
+dependencies = [
+ "bytes",
+ "hex",
+ "log",
+ "pem 3.0.6",
+ "rand 0.10.2",
+ "rcgen",
+ "rtc-crypto",
+ "rtc-datachannel 0.21.0",
+ "rtc-dtls 0.21.0",
+ "rtc-ice 0.21.0",
+ "rtc-interceptor 0.21.0",
+ "rtc-mdns 0.21.0",
+ "rtc-media 0.21.0",
+ "rtc-rtcp 0.21.0",
+ "rtc-rtp 0.21.0",
+ "rtc-sctp 0.21.0",
+ "rtc-sdp 0.21.0",
+ "rtc-shared 0.21.0",
+ "rtc-srtp 0.21.0",
+ "rtc-stun 0.21.0",
+ "rtc-turn 0.21.0",
+ "rustls",
+ "sansio",
+ "serde",
+ "serde_json",
+ "unicase",
+ "url",
+ "x509-parser 0.16.0",
+]
+
+[[package]]
+name = "rtc-crypto"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0aa6730d18cbc67b1de0430019f8e4545fd0fddba3c07f38dbbc675dc48829"
+dependencies = [
+ "aes",
+ "ccm",
+ "ctr",
+ "hmac",
+ "md-5",
+ "rand 0.10.2",
+ "ring",
+ "sha1 0.10.6",
+ "subtle",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
 name = "rtc-datachannel"
 version = "0.20.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2527,8 +2592,21 @@ checksum = "c1767cfa2571e226e16d1594518c5160d7bef10c6e0fe7a60a8f979051233ea1"
 dependencies = [
  "bytes",
  "log",
- "rtc-sctp",
- "rtc-shared",
+ "rtc-sctp 0.20.5",
+ "rtc-shared 0.20.5",
+ "sansio",
+]
+
+[[package]]
+name = "rtc-datachannel"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c670c43316afb11bf0b40070717915ff4368666350bad59042c0a89a2a1fd33"
+dependencies = [
+ "bytes",
+ "log",
+ "rtc-sctp 0.21.0",
+ "rtc-shared 0.21.0",
  "sansio",
 ]
 
@@ -2555,13 +2633,33 @@ dependencies = [
  "rcgen",
  "ring",
  "rkyv",
- "rtc-shared",
+ "rtc-shared 0.20.5",
  "rustls",
  "sec1",
  "sha1 0.10.6",
  "sha2",
  "subtle",
  "x25519-dalek",
+ "x509-parser 0.16.0",
+]
+
+[[package]]
+name = "rtc-dtls"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b05fe638f13e60cf3ef8e1608d0e8d36cfb740cce4514e8d6662887eb6c17ff9"
+dependencies = [
+ "bytecheck",
+ "byteorder",
+ "bytes",
+ "der-parser 9.0.0",
+ "log",
+ "pem 3.0.6",
+ "rcgen",
+ "rkyv",
+ "rtc-crypto",
+ "rtc-shared 0.21.0",
+ "rustls",
  "x509-parser 0.16.0",
 ]
 
@@ -2575,9 +2673,28 @@ dependencies = [
  "crc",
  "log",
  "rand 0.10.2",
- "rtc-mdns",
- "rtc-shared",
- "rtc-stun",
+ "rtc-mdns 0.20.5",
+ "rtc-shared 0.20.5",
+ "rtc-stun 0.20.5",
+ "sansio",
+ "serde",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "rtc-ice"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f437cc58721fdb3f0a2ab8b90660d3c19ea2817bc4e2117b2d80f3f6cfba5f3"
+dependencies = [
+ "bytes",
+ "crc",
+ "log",
+ "rtc-crypto",
+ "rtc-mdns 0.21.0",
+ "rtc-shared 0.21.0",
+ "rtc-stun 0.21.0",
  "sansio",
  "serde",
  "url",
@@ -2593,9 +2710,23 @@ dependencies = [
  "log",
  "rand 0.10.2",
  "rtc-interceptor-derive",
- "rtc-rtcp",
- "rtc-rtp",
- "rtc-shared",
+ "rtc-rtcp 0.20.5",
+ "rtc-rtp 0.20.5",
+ "rtc-shared 0.20.5",
+ "sansio",
+]
+
+[[package]]
+name = "rtc-interceptor"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b89c8484098eb9f7848152780df3450d704f371e4e930fda443a50b4434da3a3"
+dependencies = [
+ "log",
+ "rand 0.10.2",
+ "rtc-rtcp 0.21.0",
+ "rtc-rtp 0.21.0",
+ "rtc-shared 0.21.0",
  "sansio",
 ]
 
@@ -2618,7 +2749,20 @@ checksum = "52e1e0868d134ff0f10cd6ee71ad0d53c4a81a733f9950947eb8806b0a090159"
 dependencies = [
  "bytes",
  "log",
- "rtc-shared",
+ "rtc-shared 0.20.5",
+ "sansio",
+ "socket2",
+]
+
+[[package]]
+name = "rtc-mdns"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dac42fb41bf3c4833d71314ae1f19145d7e81a5c913e648c9954cab9cca36046"
+dependencies = [
+ "bytes",
+ "log",
+ "rtc-shared 0.21.0",
  "sansio",
  "socket2",
 ]
@@ -2632,8 +2776,22 @@ dependencies = [
  "byteorder",
  "bytes",
  "rand 0.10.2",
- "rtc-rtp",
- "rtc-shared",
+ "rtc-rtp 0.20.5",
+ "rtc-shared 0.20.5",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "rtc-media"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79245110e26b3624b1bfd89de8fecc4f94ddb8047dc143f3278ea32e893d05a1"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "rand 0.10.2",
+ "rtc-rtp 0.21.0",
+ "rtc-shared 0.21.0",
  "thiserror 2.0.20",
 ]
 
@@ -2644,7 +2802,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b515f133b14a119a3862c34b36c807bb985e90dc64515b2283b8e9a177d6ae3f"
 dependencies = [
  "bytes",
- "rtc-shared",
+ "rtc-shared 0.20.5",
+]
+
+[[package]]
+name = "rtc-rtcp"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "450cc3da3f26eba6c6eb7fc44a16370b1397ebd4cc48fa20328cf33e4b1db647"
+dependencies = [
+ "bytes",
+ "rtc-shared 0.21.0",
 ]
 
 [[package]]
@@ -2656,7 +2824,20 @@ dependencies = [
  "bytes",
  "memchr",
  "rand 0.10.2",
- "rtc-shared",
+ "rtc-shared 0.20.5",
+ "serde",
+]
+
+[[package]]
+name = "rtc-rtp"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac6a382bc412e79e1a047dc916c435098d9b8d86d6fb76b845948e628df53cfd"
+dependencies = [
+ "bytes",
+ "memchr",
+ "rand 0.10.2",
+ "rtc-shared 0.21.0",
  "serde",
 ]
 
@@ -2670,7 +2851,23 @@ dependencies = [
  "crc32c",
  "log",
  "rand 0.10.2",
- "rtc-shared",
+ "rtc-shared 0.20.5",
+ "rustc-hash",
+ "slab",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "rtc-sctp"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "161e3eb55695d4ce7492a690b6a27dc43bfeee43fd5d4af0423de1ace49456c1"
+dependencies = [
+ "bytes",
+ "crc32c",
+ "log",
+ "rand 0.10.2",
+ "rtc-shared 0.21.0",
  "rustc-hash",
  "slab",
  "thiserror 2.0.20",
@@ -2683,7 +2880,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6cb942d52e95a0b6b6178374e88e90b069d8aa7078e6e581e1490db2521978e8"
 dependencies = [
  "rand 0.10.2",
- "rtc-shared",
+ "rtc-shared 0.20.5",
+ "url",
+]
+
+[[package]]
+name = "rtc-sdp"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a59de63dab713911debb05fb5931da889692e50333462e965b783f41f5f90337"
+dependencies = [
+ "rand 0.10.2",
+ "rtc-shared 0.21.0",
  "url",
 ]
 
@@ -2710,6 +2918,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtc-shared"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d32c3e91a0eec814e093f415f5848f5c3c497d8b1140965bf26f81101691ee"
+dependencies = [
+ "bitflags 1.3.2",
+ "bytes",
+ "nix",
+ "rand 0.10.2",
+ "serde",
+ "substring",
+ "thiserror 2.0.20",
+ "url",
+ "winapi",
+]
+
+[[package]]
 name = "rtc-srtp"
 version = "0.20.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2721,11 +2946,25 @@ dependencies = [
  "ctr",
  "hmac",
  "ring",
- "rtc-rtcp",
- "rtc-rtp",
- "rtc-shared",
+ "rtc-rtcp 0.20.5",
+ "rtc-rtp 0.20.5",
+ "rtc-shared 0.20.5",
  "sha1 0.10.6",
  "subtle",
+]
+
+[[package]]
+name = "rtc-srtp"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2219abff4963802959a9fa8cff370f47ebbcdf92e783e5d8446b440414a8c76e"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "rtc-crypto",
+ "rtc-rtcp 0.21.0",
+ "rtc-rtp 0.21.0",
+ "rtc-shared 0.21.0",
 ]
 
 [[package]]
@@ -2741,9 +2980,26 @@ dependencies = [
  "md-5",
  "rand 0.10.2",
  "ring",
- "rtc-shared",
+ "rtc-shared 0.20.5",
  "sansio",
  "subtle",
+ "url",
+]
+
+[[package]]
+name = "rtc-stun"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f05cfc42b678dc8a2161ec42c5f367af70a129c5e3a2d8ea54227bb220641ed"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "crc",
+ "lazy_static",
+ "rand 0.10.2",
+ "rtc-crypto",
+ "rtc-shared 0.21.0",
+ "sansio",
  "url",
 ]
 
@@ -2755,8 +3011,22 @@ checksum = "55fd9c23215c3e22ae698b423ae86992a89cb0c24440e3e7e2932dcad75aa3f0"
 dependencies = [
  "bytes",
  "log",
- "rtc-shared",
- "rtc-stun",
+ "rtc-shared 0.20.5",
+ "rtc-stun 0.20.5",
+ "sansio",
+]
+
+[[package]]
+name = "rtc-turn"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b78c4f1b2af74058fb0210537cc3ff7f84e6babbc3baf5f392a41e93f103a73"
+dependencies = [
+ "bytes",
+ "log",
+ "rtc-crypto",
+ "rtc-shared 0.21.0",
+ "rtc-stun 0.21.0",
  "sansio",
 ]
 
@@ -3577,7 +3847,7 @@ dependencies = [
  "futures",
  "log",
  "quinn-udp",
- "rtc",
+ "rtc 0.20.5",
  "tokio",
 ]
 
@@ -3914,18 +4184,18 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.8.1"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
+checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 dependencies = [
  "zeroize_derive",
 ]
 
 [[package]]
 name = "zeroize_derive"
-version = "1.4.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
 dependencies = [
  "proc-macro2",
  "quote",
