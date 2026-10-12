@@ -255,6 +255,10 @@ impl PublishTransport {
         published_channel: Arc<replay_channel::ReplayChannel<Arc<Mutex<Publisher>>>>,
         published_receiver: Arc<Mutex<mpsc::Receiver<Arc<Mutex<Publisher>>>>>,
     ) {
+        for publisher in published_channel.subscribe().await {
+            publisher.lock().await.close().await;
+        }
+
         published_channel.clear().await;
 
         {
