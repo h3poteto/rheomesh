@@ -5,6 +5,7 @@ import {
   BrowserType,
   firefox,
 } from "@playwright/test";
+import { expectPlaying } from "./helper";
 
 const browserTypes: { [key: string]: BrowserType } = {
   chromium,
@@ -44,34 +45,9 @@ test("Camera", async ({ browserType }) => {
 
   await page1.click("#capture");
 
-  await page1.waitForSelector("#sending-video");
+  await expectPlaying(page1.locator("#sending-video"), "Browser 1");
 
-  await page2.waitForSelector(".receiving-video");
-
-  await page2.waitForFunction(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video && video.readyState > 2;
-  });
-
-  const videoState1 = await page1.evaluate(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  const videoState2 = await page2.evaluate(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  console.log(`Browser 1 video state: ${videoState1}`);
-  console.log(`Browser 2 video state: ${videoState2}`);
-
-  expect(videoState1).toBeGreaterThan(2);
-  expect(videoState2).toBeGreaterThan(2);
+  await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
   const videoPaused1 = await page1.evaluate(() => {
     const video = document.querySelector("#sending-video") as HTMLVideoElement;
