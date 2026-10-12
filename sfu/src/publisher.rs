@@ -176,6 +176,8 @@ impl Publisher {
         rtp_senders: Arc<RwLock<HashMap<u32, mpsc::UnboundedSender<rtp::packet::Packet>>>>,
         publisher_event_sender: mpsc::UnboundedSender<PublisherEvent>,
     ) {
+        let track_id = track.track_id().await;
+
         while let Some(event) = track.poll().await {
             match event {
                 TrackRemoteEvent::OnOpen(init) => {
@@ -203,6 +205,10 @@ impl Publisher {
                 _ => {}
             }
         }
+
+        tracing::debug!("TrackRemote poll loop finished: track_id={}", track_id);
+        rtp_senders.write().unwrap().clear();
+        let _ = publisher_event_sender.send(PublisherEvent::Close);
     }
 
     pub(crate) async fn publisher_event_loop(
@@ -306,10 +312,12 @@ impl Publisher {
                     p.relayed_publishers.remove(&ssrc);
                 }
                 PublisherEvent::Close => {
-                    let p = publisher.lock().await;
+                    let mut p = publisher.lock().await;
                     for (_ssrc, track) in &p.local_tracks {
                         track.close();
                     }
+                    p.local_tracks.clear();
+                    p.rtp_senders.write().unwrap().clear();
                     for (ip, port, router_id) in p.relayed_targets.iter() {
                         if let Err(err) = p
                             .relay_sender

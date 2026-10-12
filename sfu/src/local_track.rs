@@ -321,7 +321,14 @@ impl Track for LocalTrack {
     }
 
     fn close(&self) {
-        self.closed_sender.send(true).unwrap();
+        if let Err(err) = self.closed_sender.send(true) {
+            tracing::debug!(
+                "LocalTrack id={} ssrc={} is already closed: {}",
+                self.id,
+                self.ssrc,
+                err
+            );
+        }
     }
 }
 
