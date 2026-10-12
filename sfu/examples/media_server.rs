@@ -763,16 +763,5 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
             payload_type: 126,
             ..Default::default()
         },
-        RTCRtpCodecParameters {
-            rtp_codec: RTCRtpCodec {
-                mime_type: "video/ulpfec".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 116,
-            ..Default::default()
-        },
     ];
 }

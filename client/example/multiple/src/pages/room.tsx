@@ -280,7 +280,11 @@ export default function Room() {
     <div>
       <h1>Room: {room}</h1>
       <div>
-        <button id="connect" onClick={connect} disabled={connected}>
+        <button
+          id="connect"
+          onClick={connect}
+          disabled={connected || room === ""}
+        >
           Connect
         </button>
         <button
