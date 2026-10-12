@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use rtc::{
     media::Sample, peer_connection::configuration::media_engine::MIME_TYPE_OPUS,
@@ -52,11 +55,10 @@ impl Prober {
             let Some(pt) = payload_type else {
                 continue;
             };
-            let sample = Sample {
-                data: silent_audio_bytes.clone(),
-                duration,
-                ..Default::default()
-            };
+            let mut sample = Sample::new(Instant::now());
+            sample.data = silent_audio_bytes.clone();
+            sample.duration = duration;
+
             if let Err(err) = track.write_sample(ssrc, pt, &sample, &[]).await {
                 tracing::trace!("Error sending silent audio frame: {}", err);
             }
