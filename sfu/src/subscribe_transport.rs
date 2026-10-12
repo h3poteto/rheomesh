@@ -9,6 +9,7 @@ use std::{
 
 use derivative::Derivative;
 use rand::random;
+use rtc::rtp_transceiver::{RTCRtpTransceiverDirection, RTCRtpTransceiverInit};
 use rtc::statistics::StatsSelector;
 use rtc::{
     media_stream::MediaStreamTrack,
@@ -324,10 +325,24 @@ impl SubscribeTransport {
             ssrc,
         )));
 
-        let track_local_rtp_sender = self
+        let rtp_transceiver = self
             .peer_connection
-            .add_track(track_local_rtp.clone())
+            .add_transceiver_from_track(
+                track_local_rtp.clone(),
+                Some(RTCRtpTransceiverInit {
+                    direction: RTCRtpTransceiverDirection::Sendonly,
+                    ..Default::default()
+                }),
+            )
             .await?;
+        let track_local_rtp_sender =
+            rtp_transceiver
+                .sender()
+                .await?
+                .ok_or(Error::new_subscriber(
+                    "rtp sender is empty".to_string(),
+                    SubscriberErrorKind::TrackNotFoundError,
+                ))?;
         let publisher_ssrc = local_track.ssrc();
         let rtp_packet_sender = local_track.rtp_packet_sender();
         let closed_receiver = self.closed_receiver.clone();
@@ -413,7 +428,23 @@ impl SubscribeTransport {
                 }],
             ),
         )?);
-        let rtp_sender = self.peer_connection.add_track(dummy_track.clone()).await?;
+        let rtp_transceiver = self
+            .peer_connection
+            .add_transceiver_from_track(
+                dummy_track.clone(),
+                Some(RTCRtpTransceiverInit {
+                    direction: RTCRtpTransceiverDirection::Sendonly,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        let rtp_sender = rtp_transceiver
+            .sender()
+            .await?
+            .ok_or(Error::new_subscriber(
+                "rtp sender is empty".to_string(),
+                SubscriberErrorKind::TrackNotFoundError,
+            ))?;
         let _prober = Prober::new(dummy_track, rtp_sender, ssrc);
 
         Ok(())
