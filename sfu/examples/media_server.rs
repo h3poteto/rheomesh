@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
 use actix::{Actor, Message, StreamHandler};
@@ -306,7 +305,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let subscribe_transport = self.subscribe_transport.clone();
                 let subscribers = self.subscribers.clone();
                 actix::spawn(async move {
-                    let (subscriber, offer) = subscribe_transport
+                    let subscriber = subscribe_transport
                         .subscribe(publisher_id)
                         .await
                         .expect("failed to connect subscribe_transport");
@@ -319,7 +318,6 @@ impl Handler<ReceivedMessage> for WebSocket {
                     }
                     let mut s = subscribers.lock().await;
                     s.insert(id.clone(), subscriber);
-                    address.do_send(SendingMessage::Offer { sdp: offer });
                     address.do_send(SendingMessage::Subscribed { subscriber_id: id })
                 });
             }
