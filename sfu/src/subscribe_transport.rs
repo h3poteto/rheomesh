@@ -9,6 +9,7 @@ use std::{
 
 use derivative::Derivative;
 use rand::random;
+use rtc::rtp_transceiver::{RTCRtpTransceiverDirection, RTCRtpTransceiverInit};
 use rtc::statistics::StatsSelector;
 use rtc::{
     media_stream::MediaStreamTrack,
@@ -67,7 +68,6 @@ pub struct SubscribeTransport {
     // rtp event
     closed_sender: watch::Sender<bool>,
     closed_receiver: watch::Receiver<bool>,
-    signaling_pending: Arc<AtomicBool>,
     #[derivative(Debug = "ignore")]
     handler: Arc<SubscribeHandler>,
     whep: Arc<AtomicBool>,
@@ -86,7 +86,10 @@ impl SubscribeTransport {
         let on_negotiation_needed_fn: Arc<Mutex<OnNegotiationNeededFn>> =
             Arc::new(Mutex::new(Box::new(|_| {})));
         let offer_options = RTCOfferOptions { ice_restart: false };
-        let signaling_pending = Arc::new(AtomicBool::new(false));
+        let signaling = Arc::new(std::sync::Mutex::new(Signaling::new(
+            transport_config.negotiation_timeout,
+            transport_config.negotiation_max_attempts,
+        )));
         let whep = Arc::new(AtomicBool::new(false));
         let (closed_sender, closed_receiver) = watch::channel(false);
 
@@ -95,7 +98,7 @@ impl SubscribeTransport {
             on_ice_candidate_fn: on_ice_candidate_fn.clone(),
             on_negotiation_needed_fn: on_negotiation_needed_fn.clone(),
             offer_options: offer_options.clone(),
-            signaling_pending: signaling_pending.clone(),
+            signaling,
             whep: whep.clone(),
             closed_sender: closed_sender.clone(),
             signaling_state: Arc::new(RwLock::new(RTCSignalingState::default())),
@@ -122,7 +125,6 @@ impl SubscribeTransport {
             on_negotiation_needed_fn,
             closed_sender,
             closed_receiver,
-            signaling_pending,
             handler,
             whep,
         };
@@ -133,23 +135,16 @@ impl SubscribeTransport {
     }
 
     /// This starts subscribing the published media and returns an offer sdp. Please provide a [`crate::publisher::Publisher`] ID.
-    pub async fn subscribe(
-        &self,
-        publisher_id: String,
-    ) -> Result<(Arc<Mutex<Subscriber>>, RTCSessionDescription), Error> {
+    pub async fn subscribe(&self, publisher_id: String) -> Result<Arc<Mutex<Subscriber>>, Error> {
         // We have to add a track before creating offer.
         // https://datatracker.ietf.org/doc/html/rfc3264
         // https://github.com/webrtc-rs/webrtc/issues/115#issuecomment-1958137875
         let local_track = self
             .find_local_track(publisher_id.clone(), RID::HIGH)
             .await?;
-        while self.signaling_pending.load(Ordering::Relaxed) {
-            sleep(Duration::from_millis(10)).await;
-        }
-        self.signaling_pending.store(true, Ordering::Relaxed);
+
         let subscriber = self.subscribe_track(publisher_id, local_track).await?;
-        let offer = self.create_offer().await?;
-        Ok((subscriber, offer))
+        Ok(subscriber)
     }
 
     /// After subscribe a track, set an empty offer and get a corresponding SDP answer.
@@ -268,7 +263,9 @@ impl SubscribeTransport {
         tracing::debug!("subscriber set answer");
         self.peer_connection.set_remote_description(answer).await?;
 
-        self.signaling_pending.store(false, Ordering::Relaxed);
+        if self.handler.signaling.lock().unwrap().release() {
+            while self.handler.negotiate().await {}
+        }
         let pendings = self.pending_candidates.lock().await;
         for candidate in pendings.iter() {
             tracing::debug!("Adding pending ICE candidate: {:#?}", candidate);
@@ -324,10 +321,24 @@ impl SubscribeTransport {
             ssrc,
         )));
 
-        let track_local_rtp_sender = self
+        let rtp_transceiver = self
             .peer_connection
-            .add_track(track_local_rtp.clone())
+            .add_transceiver_from_track(
+                track_local_rtp.clone(),
+                Some(RTCRtpTransceiverInit {
+                    direction: RTCRtpTransceiverDirection::Sendonly,
+                    ..Default::default()
+                }),
+            )
             .await?;
+        let track_local_rtp_sender =
+            rtp_transceiver
+                .sender()
+                .await?
+                .ok_or(Error::new_subscriber(
+                    "rtp sender is empty".to_string(),
+                    SubscriberErrorKind::TrackNotFoundError,
+                ))?;
         let publisher_ssrc = local_track.ssrc();
         let rtp_packet_sender = local_track.rtp_packet_sender();
         let closed_receiver = self.closed_receiver.clone();
@@ -413,7 +424,23 @@ impl SubscribeTransport {
                 }],
             ),
         )?);
-        let rtp_sender = self.peer_connection.add_track(dummy_track.clone()).await?;
+        let rtp_transceiver = self
+            .peer_connection
+            .add_transceiver_from_track(
+                dummy_track.clone(),
+                Some(RTCRtpTransceiverInit {
+                    direction: RTCRtpTransceiverDirection::Sendonly,
+                    ..Default::default()
+                }),
+            )
+            .await?;
+        let rtp_sender = rtp_transceiver
+            .sender()
+            .await?
+            .ok_or(Error::new_subscriber(
+                "rtp sender is empty".to_string(),
+                SubscriberErrorKind::TrackNotFoundError,
+            ))?;
         let _prober = Prober::new(dummy_track, rtp_sender, ssrc);
 
         Ok(())
@@ -552,7 +579,7 @@ struct SubscribeHandler {
     on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>>,
     on_negotiation_needed_fn: Arc<Mutex<OnNegotiationNeededFn>>,
     offer_options: RTCOfferOptions,
-    signaling_pending: Arc<AtomicBool>,
+    signaling: Arc<std::sync::Mutex<Signaling>>,
     whep: Arc<AtomicBool>,
     closed_sender: watch::Sender<bool>,
     signaling_state: Arc<RwLock<RTCSignalingState>>,
@@ -575,9 +602,7 @@ impl PeerConnectionEventHandler for SubscribeHandler {
     async fn on_negotiation_needed(&self) {
         tracing::info!("on negotiation needed");
         let handler = self.clone();
-        tokio::spawn(async move {
-            handler.negotiate().await;
-        });
+        tokio::spawn(async move { while handler.negotiate().await {} });
     }
 
     async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
@@ -624,42 +649,84 @@ impl SubscribeHandler {
         rx
     }
 
-    async fn negotiate(&self) {
+    async fn negotiate(&self) -> bool {
         if self.whep.load(Ordering::Relaxed) {
             tracing::info!(
                 "Skip negotiation because WHEP has no path for a server-initiated offer"
             );
-            return;
-        }
-
-        while self.signaling_pending.load(Ordering::Relaxed) {
-            sleep(Duration::from_millis(10)).await;
+            return false;
         }
 
         let Some(pc) = self.peer_connection.get().and_then(|weak| weak.upgrade()) else {
-            return;
+            return false;
         };
 
         let locked = self.on_negotiation_needed_fn.lock().await;
         if self.connection_state() == RTCPeerConnectionState::Closed {
             tracing::info!("Skip negotiation because connection state is closed");
-            return;
+            return false;
         }
-        if self.signaling_state() != RTCSignalingState::Stable {
+        if self.signaling_state() == RTCSignalingState::HaveRemoteOffer {
             tracing::info!(
                 "Skip negotiation because signaling state is {}",
                 self.signaling_state()
             );
-            return;
+            return false;
         }
-        self.signaling_pending.store(true, Ordering::Relaxed);
+
+        let Some(generation) = self.signaling.lock().unwrap().acquire_or_defer() else {
+            return false;
+        };
         match self.create_and_send_offer(&pc).await {
             Ok(offer) => {
                 (locked)(offer);
+
+                let handler = self.clone();
+                let timeout = handler.signaling.lock().unwrap().timeout;
+                tokio::spawn(async move {
+                    let mut generation = generation;
+                    loop {
+                        sleep(timeout).await;
+
+                        let Some(pc) = handler
+                            .peer_connection
+                            .get()
+                            .and_then(|weak| weak.upgrade())
+                        else {
+                            break;
+                        };
+
+                        let decision = handler.signaling.lock().unwrap().on_timeout(generation);
+                        match decision {
+                            Decision::Stale => break,
+                            Decision::GiveUp { attempts } => {
+                                tracing::error!(
+                                    "Give up retrying offering: attempts: {}",
+                                    attempts
+                                );
+                                break;
+                            }
+                            Decision::Retry { generation: next } => {
+                                generation = next;
+                                match handler.create_and_send_offer(&pc).await {
+                                    Ok(offer) => {
+                                        let locked = handler.on_negotiation_needed_fn.lock().await;
+                                        (locked)(offer);
+                                    }
+                                    Err(err) => {
+                                        tracing::error!("Negotiation failed: {}, so retrying", err);
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                return false;
             }
             Err(err) => {
                 tracing::error!("Negotiation failed: {}", err);
-                self.signaling_pending.store(false, Ordering::Relaxed);
+                return self.signaling.lock().unwrap().release();
             }
         }
     }
@@ -682,6 +749,97 @@ impl SubscribeHandler {
         let offer = adjust_extmap(offer)?;
         tracing::info!("peer sending offer");
         Ok(offer)
+    }
+}
+
+struct Signaling {
+    generation: u64,
+    phase: Phase,
+    timeout: Duration,
+    max_attempts: u32,
+}
+
+enum Phase {
+    Idle,
+    Offering {
+        attempt: u32,
+        renegotiation_required: bool,
+    },
+}
+
+enum Decision {
+    Stale,
+    Retry { generation: u64 },
+    GiveUp { attempts: u32 },
+}
+
+impl Signaling {
+    fn new(timeout: Duration, max_attempts: u32) -> Self {
+        Self {
+            generation: 0,
+            phase: Phase::Idle,
+            timeout,
+            max_attempts,
+        }
+    }
+
+    fn acquire_or_defer(&mut self) -> Option<u64> {
+        match self.phase {
+            Phase::Idle => {
+                self.generation += 1;
+                self.phase = Phase::Offering {
+                    attempt: 1,
+                    renegotiation_required: false,
+                };
+                Some(self.generation)
+            }
+            Phase::Offering { attempt, .. } => {
+                self.phase = Phase::Offering {
+                    attempt,
+                    renegotiation_required: true,
+                };
+                None
+            }
+        }
+    }
+
+    fn release(&mut self) -> bool {
+        match self.phase {
+            Phase::Offering {
+                attempt: _,
+                renegotiation_required,
+            } => {
+                self.phase = Phase::Idle;
+                renegotiation_required
+            }
+            _ => {
+                self.phase = Phase::Idle;
+                false
+            }
+        }
+    }
+
+    fn on_timeout(&mut self, generation: u64) -> Decision {
+        let Phase::Offering { attempt, .. } = self.phase else {
+            return Decision::Stale;
+        };
+        if self.generation != generation {
+            return Decision::Stale;
+        }
+
+        if attempt < self.max_attempts {
+            self.generation += 1;
+            self.phase = Phase::Offering {
+                attempt: attempt + 1,
+                renegotiation_required: false,
+            };
+            Decision::Retry {
+                generation: self.generation,
+            }
+        } else {
+            self.phase = Phase::Idle;
+            Decision::GiveUp { attempts: attempt }
+        }
     }
 }
 

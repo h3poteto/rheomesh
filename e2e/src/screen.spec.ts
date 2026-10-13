@@ -5,6 +5,7 @@ import {
   BrowserType,
   firefox,
 } from "@playwright/test";
+import { expectPlaying } from "./helper";
 
 const browserTypes: { [key: string]: BrowserType } = {
   chromium,
@@ -41,34 +42,9 @@ test("Screen", async ({ browserType }) => {
 
   await page1.click("#capture");
 
-  await page1.waitForSelector("#sending-video");
+  await expectPlaying(page1.locator("#sending-video"), "Browser 1");
 
-  await page2.waitForSelector(".receiving-video");
-
-  await page2.waitForFunction(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video && video.readyState > 2;
-  });
-
-  const videoState1 = await page1.evaluate(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  const videoState2 = await page2.evaluate(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  console.log(`Browser 1 video state: ${videoState1}`);
-  console.log(`Browser 2 video state: ${videoState2}`);
-
-  expect(videoState1).toBeGreaterThan(2);
-  expect(videoState2).toBeGreaterThan(2);
+  await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
   const videoPaused1 = await page1.evaluate(() => {
     const video = document.querySelector("#sending-video") as HTMLVideoElement;
@@ -122,66 +98,22 @@ test("Screen", async ({ browserType }) => {
     return button && button.disabled === false;
   });
   // Confirm browser3 is subscribing the video
-  await page3.waitForFunction(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video && video.readyState > 2;
-  });
-  const videoState3 = await page3.evaluate(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  console.log(`Browser 3 video state: ${videoState3}`);
-  expect(videoState3).toBeGreaterThan(2);
+  await expectPlaying(page3.locator(".receiving-video"), "Browser 3");
 
   // Start publishing video from browser3
   await page3.click("#capture");
-  await page3.waitForSelector("#sending-video");
-  await page3.waitForFunction(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
-    return video && video.readyState > 2;
-  });
-  const videoState4 = await page3.evaluate(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-  console.log(`Browser 3 video state: ${videoState4}`);
-  expect(videoState4).toBeGreaterThan(2);
+  await expectPlaying(page3.locator("#sending-video"), "Browser 3");
 
   // Browser1 can receive the video from browser3
-  await page1.waitForSelector(".receiving-video");
-  await page1.waitForFunction(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video && video.readyState > 2;
-  });
-  const videoState5 = await page1.evaluate(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-  console.log(`Browser 1 video state: ${videoState5}`);
-  expect(videoState5).toBeGreaterThan(2);
+  await expectPlaying(page1.locator(".receiving-video"), "Browser 1");
 
   // Browser2 can receive the video from browser3. It should have 2 video elements
-  await page2.waitForSelector(".receiving-video");
   const videoLocator = page2.locator(".receiving-video");
-  const count = await videoLocator.count();
-  expect(count).toBe(2);
+  await expect(videoLocator).toHaveCount(2);
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < 2; i++) {
     const videoElement = videoLocator.nth(i);
-    const videoState6 = await videoElement.evaluate((video) => {
-      return (video as HTMLVideoElement).readyState;
-    });
-    console.log(`Browser 2 video state: ${videoState6}`);
-    expect(videoState6).toBeGreaterThan(2);
+    await expectPlaying(videoElement, `Browser 2 video ${i}`);
   }
 
   await browser1.close();
@@ -211,31 +143,9 @@ test("Restart ICE", async ({ browserType }) => {
 
   await page1.click("#capture");
 
-  await page1.waitForSelector("#sending-video");
+  await expectPlaying(page1.locator("#sending-video"), "Browser 1");
 
-  await page2.waitForSelector(".receiving-video");
-
-  await page2.waitForFunction(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video && video.readyState > 2;
-  });
-
-  const videoState1 = await page1.evaluate(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  const videoState2 = await page2.evaluate(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-
-  expect(videoState1).toBeGreaterThan(2);
-  expect(videoState2).toBeGreaterThan(2);
+  await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
   const video2Time1 = await page2.evaluate(() => {
     const video = document.querySelector(
@@ -262,14 +172,8 @@ test("Restart ICE", async ({ browserType }) => {
   await page2.click("#restart");
 
   await page2.waitForTimeout(5000); // Wait for 5 seconds
+  await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
-  const videoState3 = await page2.evaluate(() => {
-    const video = document.querySelector(
-      ".receiving-video",
-    ) as HTMLVideoElement;
-    return video ? video.readyState : -1;
-  });
-  expect(videoState3).toBeGreaterThan(2);
   const video2Time3 = await page2.evaluate(() => {
     const video = document.querySelector(
       ".receiving-video",

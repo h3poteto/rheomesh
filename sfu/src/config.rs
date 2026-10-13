@@ -52,6 +52,8 @@ pub struct WebRTCTransportConfig {
     pub ice_username_fragment: Option<String>,
     pub ice_password: Option<String>,
     pub port_range: Option<PortRange>,
+    pub negotiation_timeout: Duration,
+    pub negotiation_max_attempts: u32,
 }
 
 impl Default for WebRTCTransportConfig {
@@ -66,6 +68,8 @@ impl Default for WebRTCTransportConfig {
             ice_username_fragment: None,
             ice_password: None,
             port_range: None,
+            negotiation_timeout: Duration::from_secs(5),
+            negotiation_max_attempts: 2,
         }
     }
 }

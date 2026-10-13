@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
 use actix::{Actor, Message, StreamHandler};
@@ -306,7 +305,7 @@ impl Handler<ReceivedMessage> for WebSocket {
                 let subscribe_transport = self.subscribe_transport.clone();
                 let subscribers = self.subscribers.clone();
                 actix::spawn(async move {
-                    let (subscriber, offer) = subscribe_transport
+                    let subscriber = subscribe_transport
                         .subscribe(publisher_id)
                         .await
                         .expect("failed to connect subscribe_transport");
@@ -319,7 +318,6 @@ impl Handler<ReceivedMessage> for WebSocket {
                     }
                     let mut s = subscribers.lock().await;
                     s.insert(id.clone(), subscriber);
-                    address.do_send(SendingMessage::Offer { sdp: offer });
                     address.do_send(SendingMessage::Subscribed { subscriber_id: id })
                 });
             }
@@ -630,17 +628,17 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
         },
     ];
     return vec![
-        // RTCRtpCodecParameters {
-        //     rtp_codec: RTCRtpCodec {
-        //         mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
-        //         clock_rate: 90000,
-        //         channels: 0,
-        //         sdp_fmtp_line: "".to_owned(),
-        //         rtcp_feedback: video_rtcp_feedback.clone(),
-        //     },
-        //     payload_type: 96,
-        //     ..Default::default()
-        // },
+        RTCRtpCodecParameters {
+            rtp_codec: RTCRtpCodec {
+                mime_type: media_engine::MIME_TYPE_VP8.to_owned(),
+                clock_rate: 90000,
+                channels: 0,
+                sdp_fmtp_line: "".to_owned(),
+                rtcp_feedback: video_rtcp_feedback.clone(),
+            },
+            payload_type: 96,
+            ..Default::default()
+        },
         RTCRtpCodecParameters {
             rtp_codec: RTCRtpCodec {
                 mime_type: media_engine::MIME_TYPE_VP9.to_owned(),
@@ -761,17 +759,6 @@ fn video_codecs() -> Vec<RTCRtpCodecParameters> {
                 rtcp_feedback: video_rtcp_feedback,
             },
             payload_type: 126,
-            ..Default::default()
-        },
-        RTCRtpCodecParameters {
-            rtp_codec: RTCRtpCodec {
-                mime_type: "video/ulpfec".to_owned(),
-                clock_rate: 90000,
-                channels: 0,
-                sdp_fmtp_line: "".to_owned(),
-                rtcp_feedback: vec![],
-            },
-            payload_type: 116,
             ..Default::default()
         },
     ];

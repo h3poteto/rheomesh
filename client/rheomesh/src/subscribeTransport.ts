@@ -78,9 +78,6 @@ export class SubscribeTransport extends EventEmitter {
         "onsignalingstatechange: ",
         (event.target as RTCPeerConnection).signalingState,
       );
-      if ((event.target as RTCPeerConnection).signalingState === "stable") {
-        this._signalingLock = false;
-      }
     };
   }
 
@@ -92,18 +89,21 @@ export class SubscribeTransport extends EventEmitter {
     }
     this._sdp = sdp;
     this._signalingLock = true;
-    await this._peerConnection.setRemoteDescription(sdp);
-    const answer = await this._peerConnection.createAnswer();
-    await this._peerConnection.setLocalDescription(answer);
+    try {
+      await this._peerConnection.setRemoteDescription(sdp);
+      const answer = await this._peerConnection.createAnswer();
+      await this._peerConnection.setLocalDescription(answer);
 
-    if (this._queue.length > 0 && this._peerConnection.remoteDescription) {
-      const candidate = this._queue.shift();
-      if (candidate) {
-        await this.addIceCandidate(candidate);
+      if (this._queue.length > 0 && this._peerConnection.remoteDescription) {
+        const candidate = this._queue.shift();
+        if (candidate) {
+          await this.addIceCandidate(candidate);
+        }
       }
+      return answer;
+    } finally {
+      this._signalingLock = false;
     }
-
-    return answer;
   }
 
   public async setAnswer(answer: RTCSessionDescription): Promise<void> {
@@ -123,7 +123,7 @@ export class SubscribeTransport extends EventEmitter {
 
   public async subscribe(publisherId: string): Promise<Subscriber> {
     return new Promise(async (resolve, reject) => {
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 20; i++) {
         if (this._track[publisherId]) {
           const track = this._track[publisherId];
           const subscriber: Subscriber = {

@@ -172,6 +172,7 @@ jobs:
         if: always()
         run: |
           cat sfu/server.log
+          cat client/client.log
 
   relay:
     env:
