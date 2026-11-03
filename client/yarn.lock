@@ -4635,6 +4635,7 @@ __metadata:
   dependencies:
     "@types/events": "npm:^3"
     "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.6.6"
     "@types/sdp-transform": "npm:^2"
     events: "npm:^3.3.0"
     jest: "npm:^30.0.0"
