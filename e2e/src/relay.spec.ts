@@ -42,12 +42,12 @@ test("Relay", async ({ browserType }) => {
 
   await page1.click("#capture");
 
-  await expectPlaying(page1.locator("#sending-video"), "Browser 1");
+  await expectPlaying(page1.locator(".sending-video"), "Browser 1");
 
   await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
   const videoPaused1 = await page1.evaluate(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
+    const video = document.querySelector(".sending-video") as HTMLVideoElement;
     return video ? video.paused : true;
   });
 

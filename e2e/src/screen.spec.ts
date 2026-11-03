@@ -42,12 +42,12 @@ test("Screen", async ({ browserType }) => {
 
   await page1.click("#capture");
 
-  await expectPlaying(page1.locator("#sending-video"), "Browser 1");
+  await expectPlaying(page1.locator(".sending-video"), "Browser 1");
 
   await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
   const videoPaused1 = await page1.evaluate(() => {
-    const video = document.querySelector("#sending-video") as HTMLVideoElement;
+    const video = document.querySelector(".sending-video") as HTMLVideoElement;
     return video ? video.paused : true;
   });
 
@@ -102,7 +102,7 @@ test("Screen", async ({ browserType }) => {
 
   // Start publishing video from browser3
   await page3.click("#capture");
-  await expectPlaying(page3.locator("#sending-video"), "Browser 3");
+  await expectPlaying(page3.locator(".sending-video"), "Browser 3");
 
   // Browser1 can receive the video from browser3
   await expectPlaying(page1.locator(".receiving-video"), "Browser 1");
@@ -143,7 +143,7 @@ test("Restart ICE", async ({ browserType }) => {
 
   await page1.click("#capture");
 
-  await expectPlaying(page1.locator("#sending-video"), "Browser 1");
+  await expectPlaying(page1.locator(".sending-video"), "Browser 1");
 
   await expectPlaying(page2.locator(".receiving-video"), "Browser 2");
 
