@@ -4,6 +4,6 @@
   "prConcurrentLimit": 20,
   "prHourlyLimit": 20,
   "toolSettings": {
-    "nodeMaxMemory": 2048
+    "nodeMaxMemory": 1536
   }
 }
