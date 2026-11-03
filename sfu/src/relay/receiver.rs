@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bincode::{Decode, Encode};
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream, UdpSocket},
@@ -103,15 +103,13 @@ impl RelayServer {
                     RelayMessage::Track(data) => {
                         let res = self.handle_track_message(data).await;
                         tracing::debug!("TCP response: {:#?}", res);
-                        let byte =
-                            bincode::encode_to_vec(res, bincode::config::standard()).unwrap();
+                        let byte = serde_json::to_vec(&res)?;
                         stream.write_all(&byte).await?;
                     }
                     RelayMessage::Channel(data) => {
                         let res = self.handle_channel_message(data).await;
                         tracing::debug!("TCP response: {:#?}", res);
-                        let byte =
-                            bincode::encode_to_vec(res, bincode::config::standard()).unwrap();
+                        let byte = serde_json::to_vec(&res)?;
                         stream.write_all(&byte).await?;
                     }
                 },
@@ -504,7 +502,7 @@ impl RelayServer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TCPResponse {
     pub(crate) status: String,
     pub(crate) udp_started: Option<UDPStarted>,

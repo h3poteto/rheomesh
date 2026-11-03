@@ -11,10 +11,6 @@ pub enum Error {
     #[error(transparent)]
     IOError(#[from] io::Error),
     #[error(transparent)]
-    BincodeDecodeError(#[from] bincode::error::DecodeError),
-    #[error(transparent)]
-    BincodeEncodeError(#[from] bincode::error::EncodeError),
-    #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),
     #[error(transparent)]
     TransportError(#[from] TransportError),

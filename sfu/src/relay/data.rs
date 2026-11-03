@@ -1,4 +1,3 @@
-use bincode::{Decode, Encode};
 use bytes::{Bytes, BytesMut};
 
 use rtc::{
@@ -110,7 +109,7 @@ impl From<RTCRtpCodecSerializable> for RTCRtpCodec {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct UDPStarted {
     pub(crate) port: u16,
 }

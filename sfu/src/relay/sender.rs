@@ -69,9 +69,8 @@ impl RelaySender {
         let mut buf = Vec::with_capacity(4096);
         stream.read_buf(&mut buf).await?;
 
-        match bincode::decode_from_slice(&buf, bincode::config::standard()) {
-            Ok((response, _len)) => {
-                let received: TCPResponse = response;
+        match serde_json::from_slice::<TCPResponse>(&buf) {
+            Ok(received) => {
                 if let Some(udp_started) = received.udp_started {
                     tracing::debug!(
                         "Relay track created successfully with UDP port: {}",
@@ -122,9 +121,8 @@ impl RelaySender {
         let mut buf = Vec::with_capacity(4096);
         stream.read_buf(&mut buf).await?;
 
-        match bincode::decode_from_slice(&buf, bincode::config::standard()) {
-            Ok((response, _len)) => {
-                let received: TCPResponse = response;
+        match serde_json::from_slice::<TCPResponse>(&buf) {
+            Ok(received) => {
                 if received.status == "ok" {
                     return Ok(true);
                 } else {
@@ -167,9 +165,8 @@ impl RelaySender {
         let mut buf = Vec::with_capacity(4096);
         stream.read_buf(&mut buf).await?;
 
-        match bincode::decode_from_slice(&buf, bincode::config::standard()) {
-            Ok((response, _len)) => {
-                let received: TCPResponse = response;
+        match serde_json::from_slice::<TCPResponse>(&buf) {
+            Ok(received) => {
                 if let Some(udp_started) = received.udp_started {
                     tracing::debug!(
                         "Relay data channel created successfully with UDP port: {}",
