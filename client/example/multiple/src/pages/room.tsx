@@ -21,12 +21,11 @@ export default function Room() {
     [publisherId: string]: MediaStream;
   }>({});
   const [connected, setConnected] = useState(false);
-  const [localVideo, setLocalVideo] = useState<MediaStream>();
+  const [localVideo, setLocalVideo] = useState<Array<MediaStream>>([]);
   const [localAudio, setLocalAudio] = useState<MediaStream>();
   const [subscriberIds, setSubscriberIds] = useState<Array<string>>([]);
 
   const ws = useRef<WebSocket | null>(null);
-  const sendingVideoRef = useRef<HTMLVideoElement>(null);
   const publishTransport = useRef<PublishTransport>(null);
   const subscribeTransport = useRef<SubscribeTransport>(null);
   const publishers = useRef<Array<string>>([]);
@@ -163,11 +162,8 @@ export default function Room() {
       audio: false,
     });
 
-    if (sendingVideoRef.current) {
-      sendingVideoRef.current.srcObject = stream;
-    }
     await publish(stream);
-    setLocalVideo(stream);
+    setLocalVideo((prev) => [...prev, stream]);
   };
 
   const mic = async () => {
@@ -232,10 +228,13 @@ export default function Room() {
         JSON.stringify({ action: "StopPublish", publisherId: publisherId }),
       );
     });
-    localVideo?.getTracks().forEach((track) => {
-      track.stop();
+    localVideo.forEach((stream) => {
+      stream.getTracks().forEach((track) => {
+        track.stop();
+      });
     });
-    setLocalVideo(undefined);
+    setLocalVideo([]);
+    publishers.current = [];
     localAudio?.getTracks().forEach((track) => {
       track.stop();
     });
@@ -287,11 +286,7 @@ export default function Room() {
         >
           Connect
         </button>
-        <button
-          id="capture"
-          onClick={capture}
-          disabled={localVideo !== undefined || !connected}
-        >
+        <button id="capture" onClick={capture} disabled={!connected}>
           Capture
         </button>
         <button
@@ -309,13 +304,20 @@ export default function Room() {
         </button>
       </div>
       <h3>My Screen</h3>
-      <video
-        autoPlay
-        muted
-        id="sending-video"
-        ref={sendingVideoRef}
-        width={480}
-      ></video>
+      {localVideo.map((stream) => (
+        <video
+          key={stream.id}
+          autoPlay
+          muted
+          className="sending-video"
+          ref={(video) => {
+            if (video) {
+              video.srcObject = stream;
+            }
+          }}
+          width={480}
+        ></video>
+      ))}
       <h3>Receving</h3>
       <div>
         RID:

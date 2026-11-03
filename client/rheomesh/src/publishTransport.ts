@@ -18,7 +18,7 @@ export class PublishTransport extends EventEmitter {
   private _signalingLock: boolean;
   private _candidateQueue: Array<RTCIceCandidate> = [];
 
-  constructor(config: RTCConfiguration, whip: boolean = false) {
+  constructor(config: RTCConfiguration, _whip: boolean = false) {
     super();
     const peer = new RTCPeerConnection(config);
 
@@ -40,19 +40,6 @@ export class PublishTransport extends EventEmitter {
         this._signalingLock = false;
       }
     };
-
-    if (!whip) {
-      this._peerConnection.onnegotiationneeded = async (_event) => {
-        while (this._signalingLock) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        this._signalingLock = true;
-        const offer = await this._peerConnection.createOffer(offerOptions);
-        await this._peerConnection.setLocalDescription(offer);
-
-        this.emit("negotiationneeded", offer);
-      };
-    }
   }
 
   public async publish(

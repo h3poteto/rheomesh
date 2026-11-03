@@ -38,6 +38,7 @@ pub struct Publisher {
     relay_udp_sender: Option<Arc<RelayUDPSender>>,
     private_ip: String,
     published: bool,
+    strip_ids: Vec<u8>,
 }
 
 impl Publisher {
@@ -46,6 +47,7 @@ impl Publisher {
         router_sender: mpsc::UnboundedSender<RouterEvent>,
         relay_sender: Arc<RelaySender>,
         private_ip: String,
+        strip_ids: Vec<u8>,
     ) -> Arc<Mutex<Publisher>> {
         let (tx, rx) = mpsc::unbounded_channel::<PublisherEvent>();
         let track_id = track.track_id().await;
@@ -71,6 +73,7 @@ impl Publisher {
             relay_udp_sender: None,
             private_ip,
             published: false,
+            strip_ids,
         };
         let publisher = Arc::new(Mutex::new(publisher));
         {
@@ -91,6 +94,7 @@ impl Publisher {
 
     async fn create_local_track(&mut self, ssrc: u32, rid: String) {
         if self.local_tracks.contains_key(&ssrc) {
+            tracing::info!("Track has already been created: ssrc={}, rid={}", ssrc, rid);
             return;
         }
 
@@ -101,6 +105,7 @@ impl Publisher {
                 rid.clone(),
                 self.track.clone(),
                 self.publisher_event_sender.clone(),
+                self.strip_ids.clone(),
             )
             .await,
         );

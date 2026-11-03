@@ -9,10 +9,10 @@ use crate::{
     transport::{self, OnIceCandidateFn, OnTrackFn, Transport},
 };
 use derivative::Derivative;
-use rtc::statistics::StatsSelector;
+use rtc::{sdp::extmap, statistics::StatsSelector};
 use std::{
     sync::{
-        Arc, RwLock,
+        Arc, OnceLock, RwLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Instant,
@@ -75,6 +75,7 @@ impl PublishTransport {
         let published_receiver = Arc::new(Mutex::new(published_receiver));
 
         let handler = Arc::new(PublishHandler {
+            peer_connection: Arc::new(OnceLock::new()),
             router_event_sender: router_event_sender.clone(),
             on_ice_candidate_fn: on_ice_candidate_fn.clone(),
             on_track_fn: on_track_fn.clone(),
@@ -92,6 +93,10 @@ impl PublishTransport {
         let peer_connection =
             transport::generate_peer_connection(handler.clone(), media_config, transport_config)
                 .await?;
+
+        let _ = handler
+            .peer_connection
+            .set(Arc::downgrade(&peer_connection));
 
         let transport = Self {
             id,
@@ -325,6 +330,7 @@ impl Drop for PublishTransport {
 
 #[derive(Clone)]
 struct PublishHandler {
+    peer_connection: Arc<OnceLock<Weak<dyn PeerConnection>>>,
     router_event_sender: mpsc::UnboundedSender<RouterEvent>,
     on_ice_candidate_fn: Arc<Mutex<OnIceCandidateFn>>,
     on_track_fn: Arc<Mutex<OnTrackFn>>,
@@ -358,11 +364,17 @@ impl PeerConnectionEventHandler for PublishHandler {
         let id = track.track_id().await;
         tracing::info!("Track published: track_id={}", id);
 
+        let strip_ids = match self.peer_connection.get().and_then(|w| w.upgrade()) {
+            Some(pc) => find_strip_extension_ids(&pc, &track).await,
+            None => vec![],
+        };
+
         let publisher = Publisher::new(
             track.clone(),
             self.router_event_sender.clone(),
             self.relay_sender.clone(),
             self.private_ip.clone(),
+            strip_ids,
         )
         .await;
 
@@ -433,4 +445,30 @@ impl PublishHandler {
     fn connection_state(&self) -> RTCPeerConnectionState {
         *self.connection_state.read().unwrap()
     }
+}
+
+async fn find_strip_extension_ids(
+    pc: &Arc<dyn PeerConnection>,
+    track: &Arc<dyn TrackRemote>,
+) -> Vec<u8> {
+    for receiver in pc.get_receivers().await {
+        if !Arc::ptr_eq(receiver.track(), track) {
+            continue;
+        }
+        let Ok(parameters) = receiver.get_parameters().await else {
+            return vec![];
+        };
+        return parameters
+            .rtp_parameters
+            .header_extensions
+            .iter()
+            .filter(|ext| {
+                ext.uri == extmap::SDES_MID_URI
+                    || ext.uri == extmap::SDES_RTP_STREAM_ID_URI
+                    || ext.uri == extmap::SDES_REPAIR_RTP_STREAM_ID_URI
+            })
+            .map(|ext| ext.id as u8)
+            .collect();
+    }
+    vec![]
 }

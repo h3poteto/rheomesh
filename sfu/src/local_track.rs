@@ -49,6 +49,7 @@ impl LocalTrack {
         rid: String,
         track: Arc<dyn TrackRemote>,
         publisher_sender: mpsc::UnboundedSender<PublisherEvent>,
+        strip_ids: Vec<u8>,
     ) -> Self {
         let (rtcp_sender, rtcp_receiver) = mpsc::unbounded_channel();
         let rtcp_sender = Arc::new(rtcp_sender);
@@ -65,7 +66,7 @@ impl LocalTrack {
             let closed_sender = tx.clone();
             let mime_type = track.codec(ssrc).await.unwrap_or_default().mime_type;
             tokio::spawn(enc!((sender, payload_type) async move {
-                Self::rtp_event_loop(track_id, ssrc.clone(), mime_type, rtp_input_receiver, sender, closed_sender, payload_type).await;
+                Self::rtp_event_loop(track_id, ssrc.clone(), mime_type, rtp_input_receiver, sender, closed_sender, payload_type, strip_ids).await;
                 let _ = publisher_sender.send(PublisherEvent::TrackRemoved(ssrc));
             }));
         }
@@ -112,6 +113,7 @@ impl LocalTrack {
         rtp_sender: broadcast::Sender<(rtp::packet::Packet, Layer)>,
         closed_sender: broadcast::Sender<bool>,
         pt: Arc<AtomicU8>,
+        strip_ids: Vec<u8>,
     ) {
         tracing::debug!(
             "LocalTrack id={} ssrc={} RTP event loop has started, mime_type={}",
@@ -184,6 +186,10 @@ impl LocalTrack {
                                 rtp.header.timestamp -= last_timestamp;
                             }
                             last_timestamp = old_timestamp;
+
+                            for id in strip_ids.iter() {
+                                let _ = rtp.header.del_extension(*id);
+                            }
 
                             tracing::trace!(
                                 "LocalTrack id={} received RTP ssrc={} seq={} timestamp={}",
