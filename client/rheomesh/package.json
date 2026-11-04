@@ -29,13 +29,13 @@
   },
   "dependencies": {
     "events": "^3.3.0",
-    "sdp-transform": "^2.15.0"
+    "sdp-transform": "^3.0.0"
   },
   "devDependencies": {
     "@types/events": "^3",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.6",
-    "@types/sdp-transform": "^2",
+    "@types/sdp-transform": "^3",
     "jest": "^30.0.0",
     "jest-environment-jsdom": "^30.5.2",
     "jest-worker": "^30.0.0",
