@@ -7,7 +7,6 @@
     "outDir": "./lib",
     "rootDir": "./src",
     "removeComments": true,
-    "downlevelIteration": true,
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
@@ -19,14 +18,14 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "moduleResolution": "Node",
-    "baseUrl": "./",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "paths": {
-      "@*": ["src*"],
+      "@*": ["./src*"],
       "~*": ["./*"]
-    }
+    },
+    "types": ["node", "jest"]
   },
-  "include": ["./src", "./test"],
+  "include": ["./src"],
   "exclude": ["node_modules"]
 }
