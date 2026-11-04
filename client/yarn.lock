@@ -2367,7 +2367,7 @@ __metadata:
     next: "npm:16.4.1"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
-    rheomesh: "npm:*"
+    rheomesh: "workspace:*"
     typescript: "npm:^6"
   languageName: unknown
   linkType: soft
@@ -2514,7 +2514,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "data@workspace:example/data"
   dependencies:
-    rheomesh: "npm:*"
+    rheomesh: "workspace:*"
     typescript: "npm:^6"
     vite: "npm:^8.0.0"
   languageName: unknown
@@ -3985,7 +3985,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "media@workspace:example/media"
   dependencies:
-    rheomesh: "npm:*"
+    rheomesh: "workspace:*"
     typescript: "npm:^6"
     vite: "npm:^8.0.0"
   languageName: unknown
@@ -4150,7 +4150,7 @@ __metadata:
     next: "npm:16.4.1"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
-    rheomesh: "npm:*"
+    rheomesh: "workspace:*"
     typescript: "npm:^6"
   languageName: unknown
   linkType: soft
@@ -4629,7 +4629,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rheomesh@npm:*, rheomesh@workspace:rheomesh":
+"rheomesh@workspace:*, rheomesh@workspace:rheomesh":
   version: 0.0.0-use.local
   resolution: "rheomesh@workspace:rheomesh"
   dependencies:
@@ -5530,7 +5530,7 @@ __metadata:
     next: "npm:16.4.1"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
-    rheomesh: "npm:*"
+    rheomesh: "workspace:*"
     typescript: "npm:^6"
   languageName: unknown
   linkType: soft
@@ -5567,7 +5567,7 @@ __metadata:
     next: "npm:16.4.1"
     react: "npm:^19.0.0"
     react-dom: "npm:^19.0.0"
-    rheomesh: "npm:*"
+    rheomesh: "workspace:*"
     typescript: "npm:^6"
   languageName: unknown
   linkType: soft

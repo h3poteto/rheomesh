@@ -17,7 +17,7 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "rheomesh": "*",
+    "rheomesh": "workspace:*",
     "typescript": "^6"
   },
   "packageManager": "yarn@4.18.1"
