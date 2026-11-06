@@ -5,5 +5,11 @@
   "prHourlyLimit": 20,
   "toolSettings": {
     "nodeMaxMemory": 1536
-  }
+  },
+  "packageRules": [
+    {
+      "matchPackageNames": ["next", "@next/**", "eslint-config-next"],
+      "enabled": false
+    }
+  ]
 }
