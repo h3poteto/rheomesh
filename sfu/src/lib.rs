@@ -44,3 +44,6 @@ pub mod transport;
 mod utils;
 /// Worker is a module that manages multiple routers.
 pub mod worker;
+// Re exports
+pub use rtc;
+pub use webrtc;
