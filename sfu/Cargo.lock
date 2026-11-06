@@ -88,7 +88,7 @@ dependencies = [
  "mime",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.10.2",
+ "rand 0.10.3",
  "sha1 0.11.0",
  "smallvec",
  "tokio",
@@ -1970,9 +1970,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
 dependencies = [
  "chacha20",
  "getrandom 0.4.2",
@@ -2113,7 +2113,7 @@ dependencies = [
  "local-ip-address",
  "nom 8.0.0",
  "openport",
- "rand 0.10.2",
+ "rand 0.10.3",
  "redis",
  "rtc",
  "serde",
@@ -2185,7 +2185,7 @@ dependencies = [
  "hex",
  "log",
  "pem 3.0.6",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rcgen",
  "rtc-crypto",
  "rtc-datachannel",
@@ -2222,7 +2222,7 @@ dependencies = [
  "ctr",
  "hmac",
  "md-5",
- "rand 0.10.2",
+ "rand 0.10.3",
  "ring",
  "sha1 0.10.6",
  "subtle",
@@ -2289,7 +2289,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43e7df85d7aacf6e3f69bb922a6c9f83b2a29461038d06285df7642206df64cf"
 dependencies = [
  "log",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rtc-rtcp",
  "rtc-rtp",
  "rtc-shared",
@@ -2317,7 +2317,7 @@ checksum = "a76840ad2aff52efeb16a613db26c16981841a6cf50907bff950884f00f9d9a9"
 dependencies = [
  "byteorder",
  "bytes",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rtc-rtp",
  "rtc-shared",
  "thiserror 2.0.20",
@@ -2341,7 +2341,7 @@ checksum = "2a640f266927139a899a3a93b5cf4aa3626594ee2e5d26202b60930bb42cb445"
 dependencies = [
  "bytes",
  "memchr",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rtc-shared",
  "serde",
 ]
@@ -2355,7 +2355,7 @@ dependencies = [
  "bytes",
  "crc32c",
  "log",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rtc-shared",
  "rustc-hash",
  "slab",
@@ -2368,7 +2368,7 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd69b1ea06978e045f374ec19eb34177ee4e4f8349cc7d9c0b183683fa7b2d1f"
 dependencies = [
- "rand 0.10.2",
+ "rand 0.10.3",
  "rtc-shared",
  "url",
 ]
@@ -2382,7 +2382,7 @@ dependencies = [
  "bitflags 1.3.2",
  "bytes",
  "nix",
- "rand 0.10.2",
+ "rand 0.10.3",
  "serde",
  "substring",
  "thiserror 2.0.20",
@@ -2414,7 +2414,7 @@ dependencies = [
  "bytes",
  "crc",
  "lazy_static",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rtc-crypto",
  "rtc-shared",
  "sansio",
